@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Documentação de Referência
+
+Antes de qualquer tarefa, leia o seguinte documento na íntegra:
+1. `.claude/docs/SAD.md` — arquitetura completa do sistema
+Este documento é a fonte de verdade do projeto. Nunca tome decisões arquiteturais que contradigam o SAD sem registrar uma ADR.
+
 ## 1. Identidade do Projeto
 
 Tiny AI Lab é uma plataforma SaaS B2B para orquestração inteligente de marketing baseada em IA, construída sobre o conceito de Brand Memory, onde toda operação ocorre dentro de uma Brand (Project) ativa.
