@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## 1. Identidade do Projeto
 
