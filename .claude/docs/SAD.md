@@ -1,0 +1,10085 @@
+# Software Architecture Document (SAD)
+
+**Projeto:** Tiny AI Lab  
+**Versão:** 1.0 (Living Document)  
+**Status:** Production Ready Architecture Specification  
+**Stack:** Laravel 11 + Livewire 3 + PostgreSQL + n8n + Redis + Reverb  
+**Última atualização:** Julho/2026
+
+---
+
+# 1. Visão Geral do Sistema
+
+## 1.1 Objetivo
+
+O Tiny AI Lab é uma plataforma SaaS B2B construída para atuar como um orquestrador inteligente de marketing orientado por IA. Seu propósito é eliminar a fragmentação do processo estratégico de criação de conteúdo, concentrando em uma única plataforma toda a inteligência da marca, ativos, pesquisas, diagnósticos e geração automatizada de materiais de marketing.
+
+Em vez de funcionar como uma ferramenta isolada de geração de texto, o sistema mantém uma memória estruturada da marca ("Brand Memory"), permitindo que todos os artefatos produzidos sejam contextualizados pelas características específicas de cada empresa. A plataforma converte informações brutas fornecidas pelo usuário em ativos estratégicos estruturados, utilizando múltiplos modelos de IA coordenados por pipelines especializados executados pelo n8n.
+
+Todos os resultados produzidos são armazenados em formato JSON estruturado, permitindo versionamento, auditoria, reutilização, exportação e composição por outras funcionalidades futuras da plataforma.
+
+---
+
+## 1.2 Problema Resolvido
+
+Empresas e agências frequentemente mantêm suas informações estratégicas distribuídas entre documentos, planilhas, chats, apresentações e ferramentas distintas.
+
+Essa fragmentação gera:
+
+- perda de contexto entre campanhas;
+- inconsistência de identidade da marca;
+- retrabalho constante;
+- dificuldade de reaproveitamento de informações;
+- dependência de conhecimento tácito das equipes.
+
+O Tiny AI Lab centraliza essas informações em um único workspace por marca ("Brand Workspace"), permitindo que todos os processos de geração utilizem uma fonte consistente de conhecimento.
+
+---
+
+## 1.3 Público-alvo
+
+O sistema foi concebido para atender principalmente:
+
+- Agências de Marketing;
+- Pequenas e Médias Empresas (SMBs);
+- Consultorias;
+- Empresas com equipes internas de marketing;
+- Criadores de conteúdo que gerenciam múltiplas marcas.
+
+Mercados prioritários:
+
+- Brasil
+- Estados Unidos
+
+---
+
+## 1.4 Modelo de Monetização
+
+O Tiny AI Lab utiliza um modelo de assinatura baseado em **créditos de IA**, e **não** em quantidade fixa de execuções mensais.
+
+Cada ação disponível na plataforma possui um custo específico de créditos.
+
+O consumo ocorre apenas após a validação da assinatura ativa e da existência de saldo suficiente.
+
+### Custos conhecidos
+
+| Ação | Consumo |
+|---------|---------:|
+| Brand Research | 50 créditos |
+| Briefing Generation | 5 créditos |
+| Image Generation | 7 créditos |
+| Copywriting Edit | 15 créditos |
+| SEO Optimization | 10 créditos |
+| Create Article | **[A DEFINIR]** |
+| Create Post | **[A DEFINIR]** |
+| Create Ad | **[A DEFINIR]** |
+
+Os limites de cada plano determinam a quantidade total de créditos disponíveis ao usuário.
+
+O sistema nunca limita funcionalidades através de número fixo de execuções.
+
+Toda operação consome créditos conforme sua complexidade computacional.
+
+---
+
+## 1.5 Conceitos Fundamentais
+
+### Usuário
+
+Representa uma conta autenticada via Firebase.
+
+Cada usuário pode possuir:
+
+- assinatura ativa;
+- múltiplas marcas;
+- histórico completo de execuções;
+- saldo de créditos.
+
+---
+
+### Brand (Projeto)
+
+O conceito central da plataforma.
+
+Uma Brand representa um workspace independente contendo:
+
+- identidade;
+- ativos;
+- pesquisas;
+- estratégias;
+- execuções;
+- resultados.
+
+Toda operação do sistema acontece dentro de exatamente uma Brand ativa.
+
+---
+
+### Brand Ativa
+
+Embora um usuário possa possuir múltiplas Brands, existe sempre apenas uma Brand ativa durante uma sessão.
+
+Toda consulta ao banco deve ser automaticamente escopada pela Brand ativa.
+
+---
+
+### Execução
+
+Uma execução representa qualquer pipeline enviado ao mecanismo de IA.
+
+Exemplos:
+
+- Brand Research
+- Briefing Generation
+- Image Generation
+- Create Article
+- Create Post
+- Create Ad
+
+Cada execução possui:
+
+- configuração original;
+- estado;
+- consumo de créditos;
+- resultado estruturado.
+
+---
+
+### Pipeline
+
+Pipeline representa um fluxo independente executado pelo n8n.
+
+Cada pipeline possui:
+
+- entrada própria;
+- sequência própria de modelos de IA;
+- custo próprio em créditos;
+- retorno específico.
+
+---
+
+### Resultado
+
+Todo pipeline retorna um JSON estruturado.
+
+O sistema nunca trata respostas da IA como texto bruto.
+
+Todos os artefatos produzidos são armazenados em JSONB no PostgreSQL.
+
+---
+
+# 1.6 Premissas Arquiteturais Não-Negociáveis
+
+As seguintes decisões fazem parte da arquitetura oficial do sistema e não podem ser alteradas por implementações futuras.
+
+## Laravel é o único dono do banco
+
+Somente Laravel pode:
+
+- ler dados;
+- gravar dados;
+- atualizar dados;
+- excluir dados.
+
+Nenhum outro serviço possui acesso direto ao PostgreSQL.
+
+---
+
+## n8n nunca acessa o banco
+
+O n8n funciona exclusivamente como motor de orquestração.
+
+Ele:
+
+- recebe payloads;
+- executa integrações;
+- retorna resultados.
+
+Nunca realiza consultas SQL.
+
+Nunca abre conexões com PostgreSQL.
+
+Nunca modifica registros diretamente.
+
+---
+
+## Toda autenticação pertence ao Firebase
+
+Laravel nunca autentica usuários utilizando sessões próprias.
+
+Toda autenticação é baseada na validação do Firebase ID Token.
+
+---
+
+## Laravel controla toda autorização
+
+Mesmo após autenticação pelo Firebase, Laravel continua responsável por:
+
+- autorização;
+- policies;
+- assinatura;
+- créditos;
+- ownership;
+- acesso às Brands.
+
+---
+
+## O banco pertence exclusivamente ao domínio
+
+Nenhuma lógica de IA depende da estrutura física do banco.
+
+Os pipelines trabalham exclusivamente com payloads.
+
+---
+
+## Toda comunicação entre Laravel e n8n ocorre por Webhooks HTTP
+
+Não existem:
+
+- filas compartilhadas;
+- acesso direto ao Redis;
+- acesso ao banco;
+- chamadas RPC.
+
+Toda comunicação é baseada em HTTP autenticado.
+
+---
+
+## O frontend nunca conversa com o n8n
+
+Fluxo obrigatório:
+
+Frontend
+
+↓
+
+Laravel
+
+↓
+
+Redis
+
+↓
+
+Job
+
+↓
+
+n8n
+
+↓
+
+Laravel
+
+↓
+
+WebSocket
+
+↓
+
+Frontend
+
+---
+
+## Toda execução é assíncrona
+
+Nenhum pipeline é executado durante a requisição HTTP original.
+
+Toda geração passa obrigatoriamente por:
+
+- Redis
+- Horizon
+- Queue Worker
+
+---
+
+## Resultados são persistidos
+
+Todo resultado produzido pela IA deve ser armazenado integralmente.
+
+Não existem respostas descartáveis.
+
+---
+
+## O sistema é Multi-Brand
+
+Todo dado pertence obrigatoriamente a uma Brand.
+
+Não existem dados globais de marketing pertencentes diretamente ao usuário.
+
+---
+
+## Toda interface é Dark First
+
+O modo escuro representa a aparência oficial da plataforma.
+
+O tema claro existe apenas como alternativa.
+
+O elemento `<html>` inicia obrigatoriamente com a classe:
+
+```html
+<html class="dark">
+```
+
+---
+
+## Blade + Livewire constituem a única arquitetura frontend
+
+Não existe frontend separado.
+
+Não existe API pública para consumo da interface.
+
+Toda UI é construída utilizando:
+
+- Blade
+- Livewire 3
+- Alpine.js
+- Tailwind CSS
+
+---
+
+## Toda atualização de status utiliza Reverb
+
+Atualizações de execução nunca utilizam polling como mecanismo principal.
+
+Fluxo oficial:
+
+Worker
+
+↓
+
+Evento
+
+↓
+
+Laravel Reverb
+
+↓
+
+Livewire
+
+↓
+
+UI
+
+O polling existe apenas como fallback.
+
+---
+
+## O sistema utiliza PostgreSQL como banco oficial
+
+Todos os recursos do banco podem ser utilizados.
+
+Incluindo:
+
+- JSONB
+- GIN Index
+- Partial Index
+- Generated Columns
+- Transactions
+- Advisory Locks
+
+A arquitetura não precisa manter compatibilidade com MySQL.
+
+---
+
+> ⚠️ **Regra crítica:** Nenhuma implementação futura pode substituir ou contornar estas premissas arquiteturais. Elas constituem a base do sistema e devem ser consideradas invariáveis por qualquer agente de IA responsável pela geração de código.
+
+---
+
+# 2. Stack Tecnológico
+
+## 2.1 Visão Geral
+
+A arquitetura do Tiny AI Lab adota um monólito moderno baseado na TALL Stack (Tailwind, Alpine.js, Laravel, Livewire), complementado por serviços especializados para filas, autenticação, tempo real e orquestração de IA.
+
+Todo componente foi escolhido para reduzir complexidade operacional, minimizar custos de infraestrutura e concentrar a lógica de negócio em uma única aplicação Laravel.
+
+| Tecnologia | Versão | Papel no Sistema | Onde Roda |
+|------------|---------|------------------|------------|
+| PHP | 8.3 | Runtime principal | Droplet 1 |
+| Laravel | 11 | Backend, domínio, API, autenticação, ORM | Droplet 1 |
+| Livewire | 3 | Componentes reativos | Droplet 1 |
+| Alpine.js | 3.x | Interações locais da interface | Navegador |
+| Tailwind CSS | 3.x | Design System | Navegador (Vite) |
+| Blade | Laravel 11 | Templates da interface | Droplet 1 |
+| Inter | Latest | Tipografia oficial | Navegador |
+| PostgreSQL | [A DEFINIR] | Banco de dados principal | Droplet 1 |
+| Redis | [A DEFINIR] | Filas, cache e Horizon | Droplet 1 |
+| Laravel Horizon | Laravel 11 | Gerenciamento de filas | Droplet 1 |
+| Laravel Reverb | Laravel 11 | WebSockets | Droplet 1 |
+| Laravel Cashier | Laravel 11 | Assinaturas Stripe | Droplet 1 |
+| Firebase Auth | Spark | Autenticação | Firebase |
+| n8n | Self-hosted | Orquestração de IA | Droplet 2 |
+| Apify | Cloud | Web Scraping | Via n8n |
+| Perplexity API | Cloud | Pesquisa estratégica | Via n8n |
+| Gemini 1.5 Flash | Cloud | Diagnóstico e raciocínio | Via n8n |
+| Claude 3.5 Sonnet | Cloud | Geração criativa | Via n8n |
+| Nginx | [A DEFINIR] | Web Server | Droplet 1 |
+| DigitalOcean | Ubuntu 24.04 LTS | Infraestrutura | Cloud |
+| Cloudflare | Free | DNS, SSL e proteção | Cloud |
+| Stripe | Latest | Cobrança | Cloud |
+| Vite | Laravel 11 | Build de assets | Droplet 1 |
+
+---
+
+# 3. Arquitetura de Infraestrutura
+
+## 3.1 Visão Geral
+
+O Tiny AI Lab é implantado em uma arquitetura composta por dois Droplets independentes na DigitalOcean, conectados através de uma VPC privada.
+
+Essa separação possui dois objetivos principais:
+
+- isolar completamente a aplicação Laravel do mecanismo de automação (n8n);
+- impedir que workflows de IA concorram por CPU e memória com a aplicação principal.
+
+Todo o acesso externo ocorre exclusivamente através do Cloudflare.
+
+O n8n nunca fica exposto diretamente à Internet para consumo dos usuários da plataforma.
+
+---
+
+## 3.2 Diagrama Geral
+
+```text
+                                      Internet
+                                          │
+                                          │
+                                   Cloudflare DNS
+                              SSL • WAF • Proxy • CDN
+                                          │
+                      ┌───────────────────┴───────────────────┐
+                      │                                       │
+                app.tinyailab.com                     api.tinyailab.com
+                      │
+                      │
+         ┌─────────────────────────────────────────────┐
+         │           DigitalOcean VPC Privada          │
+         │                                             │
+         │                                             │
+         │   ┌──────────────────────────────┐          │
+         │   │        Droplet 1             │          │
+         │   │------------------------------│          │
+         │   │ Laravel 11                   │          │
+         │   │ PHP 8.3                      │          │
+         │   │ PostgreSQL                   │          │
+         │   │ Redis                        │          │
+         │   │ Horizon                      │          │
+         │   │ Reverb                       │          │
+         │   │ Nginx                        │          │
+         │   └──────────────┬───────────────┘          │
+         │                  │                          │
+         │          HTTP (Private VPC)                │
+         │                  │                          │
+         │                  ▼                          │
+         │   ┌──────────────────────────────┐          │
+         │   │        Droplet 2             │          │
+         │   │------------------------------│          │
+         │   │ Docker                       │          │
+         │   │ n8n                          │          │
+         │   │ AI Integrations              │          │
+         │   └──────────────────────────────┘          │
+         │                                             │
+         └─────────────────────────────────────────────┘
+                      │
+          ┌───────────┴────────────────────────────┐
+          │                                        │
+          ▼                                        ▼
+     Firebase Auth                     Stripe / APIs IA
+```
+
+---
+
+# 3.3 Componentes da Infraestrutura
+
+## Cloudflare
+
+O Cloudflare representa o único ponto de entrada público da aplicação.
+
+Responsabilidades:
+
+- gerenciamento de DNS;
+- emissão e renovação de SSL;
+- proxy reverso;
+- proteção contra ataques;
+- cache de ativos estáticos;
+- ocultação do IP dos Droplets.
+
+Nenhum usuário acessa diretamente o endereço IP da DigitalOcean.
+
+---
+
+## Firebase Authentication
+
+Responsável exclusivamente por:
+
+- login;
+- emissão do ID Token;
+- gerenciamento de identidade do usuário.
+
+Laravel nunca realiza autenticação por senha própria.
+
+---
+
+## Droplet 1 — Aplicação Principal
+
+### Responsabilidade
+
+Executa todo o domínio de negócio.
+
+Este servidor concentra:
+
+- Laravel;
+- banco PostgreSQL;
+- Redis;
+- Horizon;
+- Reverb;
+- Blade;
+- Livewire;
+- API interna.
+
+---
+
+### Especificação
+
+| Item | Valor |
+|------|-------|
+| Provedor | DigitalOcean |
+| Sistema Operacional | Ubuntu 24.04 LTS |
+| vCPU | [A DEFINIR] |
+| Memória | [A DEFINIR] |
+| SSD | [A DEFINIR] |
+| Custo mensal | US$ 24/mês |
+
+---
+
+### Serviços Instalados
+
+- PHP 8.3
+- Laravel 11
+- Nginx
+- PostgreSQL
+- Redis
+- Supervisor
+- Horizon
+- Laravel Reverb
+- Vite Build
+- Cron
+- Certificados (via Cloudflare)
+
+---
+
+### Responsabilidades
+
+Executa:
+
+- autenticação;
+- autorização;
+- regras de negócio;
+- acesso ao banco;
+- geração de filas;
+- recebimento de callbacks;
+- broadcasting;
+- renderização da interface.
+
+---
+
+### Serviços que NÃO executa
+
+Nunca hospeda:
+
+- n8n
+- Docker de workflows
+- automações de IA
+
+Esses componentes permanecem isolados no Droplet 2.
+
+---
+
+# 3.4 Droplet 2 — Motor de Automação
+
+## Responsabilidade
+
+Executa exclusivamente os workflows do n8n.
+
+Seu objetivo é desacoplar processamento de IA da aplicação principal.
+
+---
+
+## Especificação
+
+| Item | Valor |
+|------|-------|
+| Provedor | DigitalOcean |
+| Sistema Operacional | Ubuntu 24.04 LTS |
+| vCPU | [A DEFINIR] |
+| Memória | [A DEFINIR] |
+| SSD | [A DEFINIR] |
+| Custo mensal | US$ 12/mês |
+
+---
+
+## Serviços Instalados
+
+- Docker
+- Docker Compose
+- n8n
+- Reverse Proxy [A DEFINIR]
+
+---
+
+## Responsabilidades
+
+Executa:
+
+- pipelines;
+- chamadas para APIs externas;
+- processamento de respostas;
+- transformação de payloads.
+
+---
+
+## Restrições
+
+O Droplet 2:
+
+NÃO possui:
+
+- PostgreSQL;
+- Redis;
+- Laravel;
+- Horizon;
+- acesso SSH compartilhado com usuários da aplicação.
+
+Também nunca realiza autenticação de usuários.
+
+---
+
+# 3.5 Comunicação entre Droplets
+
+Toda comunicação ocorre utilizando exclusivamente a rede privada (VPC) da DigitalOcean.
+
+Fluxo:
+
+```text
+Laravel
+
+↓
+
+HTTP POST
+
+↓
+
+IP Privado do Droplet 2
+
+↓
+
+n8n
+
+↓
+
+HTTP POST
+
+↓
+
+Laravel Callback
+```
+
+Não existe comunicação utilizando IP público entre os servidores.
+
+---
+
+## Regras Obrigatórias
+
+Toda chamada Laravel → n8n deve utilizar:
+
+- endereço privado;
+- HTTPS quando aplicável;
+- autenticação por header secreto.
+
+Nunca utilizar:
+
+- localhost;
+- IP público;
+- domínio Cloudflare.
+
+---
+
+## Portas
+
+As portas utilizadas internamente permanecem **[A DEFINIR]**.
+
+A documentação disponível não especifica portas de produção.
+
+---
+
+# 3.6 Comunicação Externa
+
+## Usuário → Laravel
+
+Fluxo:
+
+```text
+Browser
+
+↓
+
+Cloudflare
+
+↓
+
+Nginx
+
+↓
+
+Laravel
+```
+
+---
+
+## Laravel → Firebase
+
+Utilizado para:
+
+- validação do ID Token.
+
+---
+
+## Laravel → Stripe
+
+Utilizado para:
+
+- checkout;
+- assinaturas;
+- webhooks.
+
+---
+
+## Laravel → n8n
+
+Utilizado para:
+
+- iniciar pipelines.
+
+---
+
+## n8n → APIs
+
+Chamadas para:
+
+- Apify;
+- Perplexity;
+- Gemini;
+- Claude.
+
+---
+
+## n8n → Laravel
+
+Utilizado exclusivamente para:
+
+- callback final;
+- callback de erro.
+
+---
+
+# 3.7 Estratégia de SSL
+
+Toda criptografia TLS é gerenciada pelo Cloudflare.
+
+Responsabilidades:
+
+- emissão;
+- renovação;
+- revogação.
+
+A aplicação Laravel não gerencia certificados manualmente.
+
+---
+
+## Política
+
+Todo tráfego externo utiliza HTTPS.
+
+HTTP simples deve ser redirecionado automaticamente.
+
+---
+
+# 3.8 DNS
+
+A documentação identifica o Cloudflare como responsável pelo gerenciamento DNS.
+
+Hosts conhecidos:
+
+| Host | Finalidade |
+|-------|------------|
+| app | Aplicação principal |
+| api | Backend/API |
+| [A DEFINIR] | n8n |
+
+---
+
+# 3.9 Backup
+
+A estratégia oficial utiliza o serviço nativo de backups da DigitalOcean.
+
+Serviço:
+
+DigitalOcean Backups
+
+Custo aproximado:
+
+US$ 2/mês
+
+---
+
+## Escopo
+
+Inclui:
+
+- snapshots do Droplet;
+- recuperação de desastre.
+
+---
+
+## Banco de Dados
+
+A documentação fornecida não especifica:
+
+- política de dumps PostgreSQL;
+- retenção;
+- backup incremental.
+
+Esses itens permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 3.10 Escalabilidade
+
+A arquitetura foi desenhada para permitir evolução incremental.
+
+Separações existentes:
+
+- aplicação;
+- automações;
+- banco;
+- filas.
+
+Possíveis evoluções futuras:
+
+- Redis dedicado;
+- PostgreSQL gerenciado;
+- múltiplos Workers Horizon;
+- múltiplos servidores Laravel;
+- balanceador de carga.
+
+Essas evoluções não alteram o domínio do sistema.
+
+---
+
+# 3.11 Custos Conhecidos
+
+| Recurso | Custo |
+|----------|-------:|
+| Droplet 1 | US$ 24/mês |
+| Droplet 2 | US$ 12/mês |
+| DigitalOcean Backups | US$ 2/mês |
+| Cloudflare | Free |
+| Firebase | Conforme uso |
+| Stripe | Conforme transações |
+| APIs de IA | Conforme consumo |
+
+---
+
+> ⚠️ **Regra crítica:** Nenhum componente externo além do Laravel pode possuir acesso direto ao PostgreSQL. Toda comunicação entre os Droplets deve ocorrer exclusivamente pela VPC privada autenticada. O n8n nunca deve ser exposto como backend público da aplicação.
+
+---
+
+# 4. Modelo de Dados (PostgreSQL)
+
+## 4.1 Visão Geral
+
+O PostgreSQL constitui o banco de dados oficial do Tiny AI Lab.
+
+A modelagem privilegia:
+
+- consistência transacional;
+- suporte nativo a JSONB;
+- índices GIN;
+- consultas relacionais;
+- versionamento implícito dos resultados gerados por IA.
+
+Todos os dados persistentes pertencem ao domínio Laravel.
+
+O n8n nunca possui acesso direto ao banco.
+
+---
+
+## 4.2 Princípios de Modelagem
+
+A modelagem segue as seguintes regras obrigatórias:
+
+- toda tabela possui chave primária `id`;
+- todas as tabelas de domínio utilizam `created_at` e `updated_at`;
+- relacionamentos utilizam chaves estrangeiras explícitas;
+- resultados de IA são armazenados em JSONB;
+- consultas devem sempre ser escopadas pela Brand ativa;
+- dados pertencem ao usuário através da Brand, nunca diretamente quando fizerem parte do domínio de marketing.
+
+
+
+## 4.3 Tabela `users`
+
+### Propósito
+
+Armazena os usuários autenticados pelo Firebase e seus metadados de assinatura, consumo de créditos e preferências da aplicação.
+
+A autenticação **não utiliza senha local**. O registro representa apenas a identidade interna do domínio Laravel.
+
+---
+
+### Colunas
+
+| Coluna | Tipo | Constraints | Descrição |
+|---------|------|-------------|-----------|
+| id | bigint | PK | Identificador interno |
+| firebase_uid | string | UNIQUE, NOT NULL | UID recebido do Firebase |
+| name | string | NOT NULL | Nome do usuário |
+| email | string | UNIQUE, NOT NULL | Email principal |
+| avatar_url | string | nullable | Foto do usuário |
+| locale | string | default 'en' | Idioma preferido |
+| theme | string | default 'dark' | Preferência de tema |
+| credits_balance | integer | default 0 | Saldo atual disponível |
+| credits_used_this_month | integer | default 0 | Consumo mensal acumulado |
+| last_credit_reset_at | timestamp | nullable | Última renovação de créditos |
+| email_verified_at | timestamp | nullable | Compatibilidade Laravel |
+| remember_token | string | nullable | Compatibilidade Laravel |
+| created_at | timestamp | NOT NULL | Auditoria |
+| updated_at | timestamp | NOT NULL | Auditoria |
+
+---
+
+### Índices
+
+```
+PRIMARY KEY (id)
+
+UNIQUE(firebase_uid)
+
+UNIQUE(email)
+```
+
+---
+
+### Relacionamentos
+
+```
+User
+ ├── hasMany(Project)
+ ├── hasMany(Execution)
+ ├── hasMany(Notification)
+ └── hasOne(Subscription)
+```
+
+---
+
+### Política de Retenção
+
+Não definida na documentação.
+
+**[A DEFINIR]**
+
+---
+
+# 4.4 Tabela `projects`
+
+> Apesar do nome físico da tabela ser `projects`, ela representa conceitualmente uma **Brand** (workspace).
+
+Todo dado estratégico pertence a uma Brand.
+
+---
+
+## Propósito
+
+Representa um workspace independente.
+
+Cada Brand possui:
+
+- identidade;
+- ativos;
+- pesquisas;
+- estratégias;
+- execuções.
+
+Um usuário pode possuir inúmeras Brands.
+
+A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
+
+---
+
+### Colunas
+
+| Coluna | Tipo | Constraints |
+|---------|------|-------------|
+| id | bigint | PK |
+| user_id | bigint | FK users |
+| name | string | NOT NULL |
+| slug | string | UNIQUE |
+| logo | string | nullable |
+| color | string | nullable |
+| created_at | timestamp | NOT NULL |
+| updated_at | timestamp | NOT NULL |
+
+---
+
+### Índices
+
+```
+INDEX(user_id)
+
+UNIQUE(slug)
+```
+
+---
+
+### Relacionamentos
+
+```
+User
+
+↓
+
+Projects
+
+↓
+
+Executions
+
+↓
+
+Assets
+
+↓
+
+Research
+```
+
+---
+
+### Política de Retenção
+
+Ao excluir uma Brand, o comportamento de cascata não está documentado.
+
+**[A DEFINIR]**
+
+---
+
+# 4.5 Tabela `executions`
+
+## Propósito
+
+Representa qualquer execução enviada ao mecanismo de IA.
+
+Cada registro representa exatamente um pipeline.
+
+Nunca existem múltiplos pipelines no mesmo registro.
+
+---
+
+### Colunas
+
+| Coluna | Tipo | Constraints |
+|---------|------|-------------|
+| id | bigint | PK |
+| project_id | bigint | FK |
+| user_id | bigint | FK |
+| pipeline_type | string | NOT NULL |
+| status | enum | NOT NULL |
+| config | jsonb | NOT NULL |
+| result | jsonb | nullable |
+| tokens_used | integer | default 0 |
+| credits_consumed | integer | NOT NULL |
+| started_at | timestamp | nullable |
+| finished_at | timestamp | nullable |
+| error_message | text | nullable |
+| created_at | timestamp | NOT NULL |
+| updated_at | timestamp | NOT NULL |
+
+---
+
+## Status
+
+Os documentos identificam uma máquina de estados baseada em execução assíncrona.
+
+Estados conhecidos:
+
+```
+pending
+
+processing
+
+completed
+
+failed
+```
+
+Outros estados permanecem:
+
+**[A DEFINIR]**
+
+---
+
+## Campo `config`
+
+Tipo:
+
+```
+JSONB
+```
+
+Contém a configuração enviada ao pipeline.
+
+Exemplo conceitual:
+
+```json
+{
+    "brand_id": 4,
+    "pipeline_type": "brand_research",
+    "language": "en",
+    "inputs": {}
+}
+```
+
+A estrutura exata depende do pipeline.
+
+---
+
+## Campo `result`
+
+Tipo:
+
+```
+JSONB
+```
+
+Contém todo o retorno produzido pela IA.
+
+Pode ultrapassar facilmente dezenas de kilobytes.
+
+---
+
+### Regra obrigatória
+
+**Nunca carregar `result` em listagens.**
+
+Sempre utilizar:
+
+```php
+Execution::select([
+'id',
+'status',
+'pipeline_type',
+'created_at'
+])
+```
+
+Jamais:
+
+```php
+Execution::all();
+```
+
+---
+
+### Índices
+
+```
+PRIMARY(id)
+
+INDEX(project_id)
+
+INDEX(user_id)
+
+INDEX(status)
+
+INDEX(pipeline_type)
+
+GIN(result)
+
+GIN(config)
+```
+
+---
+
+### Observação importante
+
+Os documentos indicam que os resultados podem crescer significativamente.
+
+Por esse motivo:
+
+- JSONB é obrigatório;
+- índice GIN é obrigatório;
+- consultas administrativas nunca devem selecionar `result` sem necessidade.
+
+---
+
+### Relacionamentos
+
+```
+Execution
+
+belongsTo(User)
+
+belongsTo(Project)
+```
+
+---
+
+### Política de Retenção
+
+Não documentada.
+
+**[A DEFINIR]**
+
+---
+
+# 4.6 Tabela `video_references`
+
+## Propósito
+
+Armazena referências de vídeos utilizados pelos pipelines de pesquisa.
+
+Esses registros constituem um banco reutilizável para análises futuras.
+
+---
+
+### Colunas
+
+| Coluna | Tipo |
+|---------|------|
+| id | bigint |
+| external_id | string |
+| platform | string |
+| title | string |
+| author | string |
+| url | string |
+| metadata | jsonb |
+| created_at | timestamp |
+| updated_at | timestamp |
+
+---
+
+### Índices
+
+```
+PRIMARY(id)
+
+UNIQUE(external_id)
+```
+
+---
+
+### Estratégia de Persistência
+
+Sempre utilizar UPSERT baseado em:
+
+```
+external_id
+```
+
+Nunca criar duplicatas.
+
+---
+
+### Campo metadata
+
+Tipo:
+
+```
+JSONB
+```
+
+Conteúdo:
+
+**[A DEFINIR]**
+
+---
+
+# 4.7 Tabela `plan_limits`
+
+## Propósito
+
+Centraliza todas as regras de consumo de créditos.
+
+Os custos nunca podem ser codificados diretamente no Laravel.
+
+Toda consulta deve utilizar esta tabela.
+
+---
+
+### Colunas
+
+| Coluna | Tipo |
+|---------|------|
+| id | bigint |
+| plan | string |
+| action | string |
+| credits | integer |
+| created_at | timestamp |
+| updated_at | timestamp |
+
+---
+
+### Exemplos
+
+| Plano | Ação | Créditos |
+|--------|------|----------|
+| Starter | Brand Research | 50 |
+| Starter | Briefing | 5 |
+| Starter | Image Generation | 7 |
+
+---
+
+### Regras
+
+Os documentos determinam que:
+
+- diferentes ações possuem custos diferentes;
+- o middleware consulta estes valores antes da execução;
+- Redis pode cachear esses registros.
+
+---
+
+### Índices
+
+```
+INDEX(plan)
+
+INDEX(action)
+```
+
+---
+
+# 4.8 Subscriptions
+
+A plataforma utiliza Laravel Cashier.
+
+As tabelas padrão do Cashier permanecem válidas.
+
+Incluem:
+
+```
+subscriptions
+
+subscription_items
+```
+
+Os documentos não especificam alterações estruturais.
+
+---
+
+# 4.9 Notifications
+
+A aplicação utiliza notificações Laravel.
+
+Tabela:
+
+```
+notifications
+```
+
+Sem customizações documentadas.
+
+---
+
+# 4.10 Tabelas do Laravel
+
+Mantêm-se as tabelas padrão:
+
+```
+cache
+
+cache_locks
+
+jobs
+
+job_batches
+
+failed_jobs
+
+sessions
+
+password_reset_tokens
+
+migrations
+```
+
+---
+
+# 4.11 Relacionamento Geral
+
+```text
+Users
+
+│
+
+├──────────────┐
+
+│              │
+
+Projects   Subscriptions
+
+│
+
+│
+
+Executions
+
+│
+
+│
+
+Result (JSONB)
+```
+
+---
+
+# 4.12 Estratégias de Indexação
+
+Obrigatórias:
+
+- PK em todas as tabelas
+- FK indexadas
+- UNIQUE onde aplicável
+- GIN para JSONB
+- índices para filtros frequentes
+
+Os documentos não especificam índices parciais.
+
+---
+
+# 4.13 Convenções
+
+Toda tabela utiliza:
+
+```
+snake_case
+```
+
+Todos os nomes seguem convenções Laravel.
+
+---
+
+# 4.14 Convenções JSONB
+
+Os documentos definem que JSONB é utilizado para preservar flexibilidade.
+
+Campos conhecidos:
+
+```
+config
+
+result
+
+metadata
+```
+
+Todos devem permanecer válidos mesmo com evolução dos pipelines.
+
+Migrações futuras nunca devem depender da estrutura interna desses JSONs.
+
+---
+
+> ⚠️ **Regra crítica:** O campo `result` pode conter dezenas de kilobytes de dados estruturados. Nunca carregue esse campo em consultas de listagem, dashboards ou tabelas administrativas. Utilize `select()` explícito e carregue o conteúdo completo apenas em páginas de visualização detalhada.
+
+---
+
+# 5. Arquitetura de Autenticação e Segurança
+
+## 5.1 Visão Geral
+
+A autenticação do Tiny AI Lab é baseada no **Firebase Authentication**, enquanto toda autorização e aplicação das regras de negócio permanecem sob responsabilidade exclusiva do Laravel.
+
+Essa separação estabelece um limite claro de responsabilidades:
+
+- **Firebase** comprova a identidade do usuário.
+- **Laravel** determina o que esse usuário pode fazer.
+
+O sistema não utiliza autenticação nativa do Laravel (Breeze, Jetstream, Fortify ou Sanctum) para login por senha.
+
+Toda sessão autenticada deriva da validação de um **Firebase ID Token**.
+
+
+## 5.2 Fluxo de Autenticação (Firebase → Laravel)
+
+Todo processo de autenticação segue rigorosamente o fluxo abaixo.
+
+```text
+Usuário
+
+↓
+
+Tela de Login
+
+↓
+
+Firebase Authentication
+
+↓
+
+Firebase ID Token
+
+↓
+
+Request HTTP
+
+Authorization: Bearer <token>
+
+↓
+
+Laravel
+
+↓
+
+VerifyFirebaseToken Middleware
+
+↓
+
+Firebase Admin SDK
+
+↓
+
+Token válido?
+
+├── NÃO → HTTP 401
+│
+└── SIM
+      │
+      ▼
+
+Busca (ou cria) usuário local
+
+↓
+
+Carrega assinatura
+
+↓
+
+Carrega saldo de créditos
+
+↓
+
+Carrega contexto da Brand ativa
+
+↓
+
+Controller / Livewire Component
+```
+
+---
+
+## Etapa 1 — Autenticação
+
+O usuário autentica-se utilizando o Firebase Authentication.
+
+O mecanismo específico de login (Google, Email/Senha, OAuth etc.) não está documentado.
+
+**[A DEFINIR]**
+
+---
+
+## Etapa 2 — Emissão do ID Token
+
+Após autenticação, o Firebase gera um **ID Token**.
+
+Esse token representa a identidade do usuário.
+
+Laravel nunca gera JWT próprio.
+
+Laravel nunca emite Access Tokens.
+
+---
+
+## Etapa 3 — Requisição
+
+Toda chamada autenticada envia:
+
+```http
+Authorization: Bearer eyJhbGciOi...
+```
+
+---
+
+## Etapa 4 — Middleware
+
+Toda rota protegida passa obrigatoriamente por:
+
+```
+VerifyFirebaseToken
+```
+
+---
+
+## Etapa 5 — Validação
+
+O middleware valida:
+
+- assinatura;
+- expiração;
+- emissor;
+- audience;
+- integridade.
+
+Utilizando o Firebase Admin SDK.
+
+---
+
+## Etapa 6 — Usuário Local
+
+Após validação:
+
+```
+firebase_uid
+
+↓
+
+users.firebase_uid
+
+↓
+
+User Model
+```
+
+Caso o registro ainda não exista:
+
+O comportamento não está explicitamente documentado.
+
+**[A DEFINIR]**
+
+---
+
+## Etapa 7 — Contexto
+
+Após localizar o usuário:
+
+Laravel passa a controlar:
+
+- assinatura;
+- créditos;
+- Brand ativa;
+- autorização.
+
+---
+
+# 5.3 Middleware `VerifyFirebaseToken`
+
+## Responsabilidade
+
+Autenticar toda requisição protegida.
+
+Ele representa a fronteira entre:
+
+Firebase
+
+↓
+
+Laravel
+
+---
+
+## Fluxo Interno
+
+```text
+Recebe Request
+
+↓
+
+Extrai Authorization Header
+
+↓
+
+Existe Token?
+
+├── NÃO → 401
+│
+└── SIM
+      │
+      ▼
+
+Valida Token Firebase
+
+↓
+
+Token Inválido?
+
+├── SIM → 401
+│
+└── NÃO
+      │
+      ▼
+
+Busca User
+
+↓
+
+$request->setUserResolver()
+
+↓
+
+Próximo Middleware
+```
+
+---
+
+## Responsabilidades
+
+- validar ID Token;
+- localizar usuário;
+- anexar usuário autenticado ao Request.
+
+---
+
+## Não é responsabilidade
+
+Este middleware nunca valida:
+
+- assinatura;
+- saldo de créditos;
+- ownership;
+- permissões.
+
+Essas verificações ocorrem posteriormente.
+
+---
+
+# 5.4 Middleware `CheckSubscription`
+
+## Responsabilidade
+
+Verificar se o usuário possui assinatura válida.
+
+Fluxo:
+
+```text
+User
+
+↓
+
+Subscription
+
+↓
+
+Ativa?
+
+├── NÃO → 402 / Redirect
+│
+└── SIM
+      │
+      ▼
+
+Continue
+```
+
+---
+
+## Verificações
+
+Confirma:
+
+- assinatura existente;
+- assinatura ativa.
+
+Regras específicas de grace period ou trial não estão documentadas.
+
+**[A DEFINIR]**
+
+---
+
+## Quando Executa
+
+Executa antes de qualquer ação que consuma créditos.
+
+---
+
+# 5.5 Middleware `EnsureCreditBalance`
+
+Este middleware substitui completamente qualquer lógica baseada em limite de execuções.
+
+Toda autorização operacional ocorre através do saldo de créditos.
+
+---
+
+## Fluxo
+
+```text
+Pipeline solicitado
+
+↓
+
+Identifica ação
+
+↓
+
+Consulta plan_limits
+
+↓
+
+Obtém custo
+
+↓
+
+User.credits_balance
+
+↓
+
+Saldo suficiente?
+
+├── NÃO
+│
+│ HTTP 402
+│ CTA Buy Credits
+│
+└── SIM
+      │
+      ▼
+
+Permite execução
+```
+
+---
+
+## Responsabilidades
+
+- identificar ação;
+- consultar custo;
+- validar saldo.
+
+---
+
+## Não decrementa créditos
+
+O middleware apenas valida.
+
+O débito ocorre durante o processamento da execução.
+
+---
+
+## Fonte da Verdade
+
+O custo nunca pode ser definido em:
+
+- constantes;
+- enums;
+- controllers;
+- componentes Livewire.
+
+Sempre:
+
+```
+plan_limits
+```
+
+---
+
+## Cache
+
+Os documentos permitem cache via Redis.
+
+Fluxo esperado:
+
+```text
+Redis
+
+↓
+
+plan_limits
+
+↓
+
+Middleware
+```
+
+---
+
+# 5.6 Autenticação Laravel ↔ n8n
+
+A comunicação entre os dois servidores utiliza um segredo compartilhado.
+
+Header:
+
+```http
+X-N8N-Secret:
+```
+
+---
+
+## Geração
+
+O segredo é armazenado como variável de ambiente.
+
+Nome:
+
+**[A DEFINIR]**
+
+---
+
+## Armazenamento
+
+Nunca armazenar em:
+
+- banco;
+- código;
+- arquivos versionados.
+
+Somente:
+
+```
+.env
+```
+
+---
+
+## Validação
+
+A comparação deve utilizar:
+
+```php
+hash_equals(
+    config('services.n8n.secret'),
+    $request->header('X-N8N-Secret')
+);
+```
+
+Nunca utilizar:
+
+```php
+==
+```
+
+ou
+
+```php
+===
+```
+
+para comparação de segredos.
+
+---
+
+## Objetivo
+
+Impedir callbacks falsificados.
+
+---
+
+# 5.7 Fluxo Laravel → n8n
+
+```text
+Job
+
+↓
+
+HTTP POST
+
+↓
+
+Header:
+
+X-N8N-Secret
+
+↓
+
+n8n
+
+↓
+
+Validação
+
+↓
+
+Pipeline
+```
+
+---
+
+# 5.8 Fluxo n8n → Laravel
+
+```text
+Workflow Finalizado
+
+↓
+
+HTTP POST
+
+↓
+
+Laravel Callback
+
+↓
+
+Validação Header
+
+↓
+
+Atualização Execution
+
+↓
+
+Broadcast
+```
+
+---
+
+# 5.9 Policies
+
+A documentação identifica duas Policies obrigatórias.
+
+---
+
+## ExecutionPolicy
+
+Responsável por controlar acesso às execuções.
+
+Permissões esperadas:
+
+```
+view
+
+update
+
+delete
+```
+
+Toda verificação deve considerar:
+
+- usuário;
+- Brand;
+- ownership.
+
+---
+
+## ProjectPolicy
+
+Responsável por controlar acesso às Brands.
+
+Permissões esperadas:
+
+```
+view
+
+update
+
+delete
+
+restore
+```
+
+---
+
+## Escopo
+
+Nunca basta verificar:
+
+```
+user_id
+```
+
+Também deve ser validado:
+
+```
+project_id
+```
+
+da Brand ativa.
+
+---
+
+# 5.10 Matriz de Segurança
+
+| Camada | Responsabilidade |
+|---------|------------------|
+| Firebase | Identidade |
+| VerifyFirebaseToken | Validação do Token |
+| CheckSubscription | Assinatura |
+| EnsureCreditBalance | Créditos |
+| Policy | Ownership |
+| Controller | Regras específicas |
+| Model | Persistência |
+
+---
+
+# 5.11 Endpoints × Segurança
+
+| Endpoint | Firebase | Subscription | Créditos | Policy |
+|----------|----------|--------------|-----------|--------|
+| Dashboard | ✔ | ✔ | — | ✔ |
+| Brand Core | ✔ | ✔ | — | ✔ |
+| Brand Assets | ✔ | ✔ | — | ✔ |
+| Research | ✔ | ✔ | ✔ | ✔ |
+| Brand Research | ✔ | ✔ | ✔ | ✔ |
+| Briefing | ✔ | ✔ | ✔ | ✔ |
+| Image Generation | ✔ | ✔ | ✔ | ✔ |
+| Create Article | ✔ | ✔ | ✔ | ✔ |
+| Create Post | ✔ | ✔ | ✔ | ✔ |
+| Create Ad | ✔ | ✔ | ✔ | ✔ |
+
+---
+
+# 5.12 Segurança da Brand Ativa
+
+O sistema é Multi-Brand.
+
+Isso significa que dois registros pertencentes ao mesmo usuário podem não pertencer ao mesmo contexto ativo.
+
+Toda consulta deve respeitar simultaneamente:
+
+```
+user_id
+```
+
+e
+
+```
+project_id
+```
+
+Exemplo correto:
+
+```php
+Execution::query()
+    ->where('user_id', auth()->id())
+    ->where('project_id', $activeProjectId);
+```
+
+Nunca:
+
+```php
+Execution::whereUserId(auth()->id());
+```
+
+---
+
+# 5.13 Tratamento de Erros
+
+| Situação | Resposta |
+|----------|----------|
+| Token ausente | HTTP 401 |
+| Token inválido | HTTP 401 |
+| Assinatura inexistente | HTTP 402 |
+| Créditos insuficientes | HTTP 402 |
+| Brand não pertence ao usuário | HTTP 403 |
+| Execução de outra Brand | HTTP 403 |
+
+---
+
+> ⚠️ **Regra crítica:** A autenticação comprova apenas a identidade do usuário. Toda autorização continua sendo responsabilidade do Laravel. Nunca permita acesso a uma Execution, Project ou qualquer outro recurso apenas com base no `user_id`; toda consulta deve ser obrigatoriamente escopada pela Brand ativa (`project_id`) e validada por Policy.
+
+---
+
+# 6. O Pipeline de Execução
+
+## 6.1 Visão Geral
+
+Todo processamento de IA no Tiny AI Lab segue uma arquitetura assíncrona baseada em filas.
+
+Nenhuma requisição HTTP do usuário permanece aberta aguardando processamento de modelos de IA.
+
+O Laravel é responsável por:
+
+- validar a requisição;
+- verificar assinatura;
+- verificar saldo de créditos;
+- registrar a execução;
+- despachar o Job.
+
+O n8n é responsável apenas por:
+
+- executar o pipeline;
+- integrar APIs externas;
+- devolver o resultado estruturado.
+
+---
+
+## Fluxo Geral
+
+```text
+Usuário
+
+↓
+
+Livewire
+
+↓
+
+Laravel
+
+↓
+
+Policies
+
+↓
+
+CheckSubscription
+
+↓
+
+EnsureCreditBalance
+
+↓
+
+Execution (pending)
+
+↓
+
+Queue
+
+↓
+
+Job
+
+↓
+
+HTTP
+
+↓
+
+n8n
+
+↓
+
+IA
+
+↓
+
+Callback
+
+↓
+
+Execution (completed)
+
+↓
+
+Broadcast
+
+↓
+
+Livewire
+```
+
+---
+
+## Estados da Execução
+
+```text
+pending
+
+↓
+
+processing
+
+↓
+
+completed
+```
+
+ou
+
+```text
+pending
+
+↓
+
+processing
+
+↓
+
+failed
+```
+
+---
+
+## Estrutura Comum
+
+Independentemente do tipo de pipeline, todas as execuções seguem as mesmas etapas:
+
+1. validação da requisição;
+2. validação da Brand ativa;
+3. validação da assinatura;
+4. validação de créditos;
+5. criação da Execution;
+6. envio para fila;
+7. chamada HTTP ao n8n;
+8. processamento externo;
+9. callback;
+10. persistência do resultado;
+11. broadcast em tempo real.
+
+Nas próximas subseções será detalhado cada pipeline individualmente (`Brand Research`, `Briefing Generation`, `Image Generation`, `Create Article`, `Create Post` e `Create Ad`), incluindo atores, estados, consumo de créditos e cenários completos de falha.
+
+
+## 6.2 Pipeline — Brand Research
+
+### Objetivo
+
+Executar uma pesquisa aprofundada sobre a marca utilizando fontes externas e modelos de IA para produzir uma base estratégica estruturada.
+
+Este pipeline representa o processamento mais custoso identificado na documentação.
+
+---
+
+### Consumo
+
+| Ação | Créditos |
+|------|----------:|
+| Brand Research | **50** |
+
+---
+
+### Ator
+
+Usuário autenticado.
+
+---
+
+### Entrada
+
+Origina-se da interface:
+
+```
+Research and Strategy
+
+↓
+
+Brand Research
+```
+
+Os campos específicos enviados pelo formulário não estão integralmente documentados.
+
+**[A DEFINIR]**
+
+---
+
+### Fluxo
+
+```text
+Usuário
+
+↓
+
+Livewire
+
+↓
+
+Validate Request
+
+↓
+
+Execution::create()
+
+status = pending
+
+↓
+
+Dispatch Job
+
+↓
+
+Queue
+
+↓
+
+n8n
+
+↓
+
+Apify
+
+↓
+
+Perplexity
+
+↓
+
+Gemini
+
+↓
+
+Claude
+
+↓
+
+Resultado JSON
+
+↓
+
+Laravel Callback
+
+↓
+
+Execution Completed
+
+↓
+
+Broadcast
+```
+
+---
+
+### Persistência
+
+Ao iniciar:
+
+```
+status = pending
+```
+
+Durante processamento:
+
+```
+status = processing
+```
+
+Ao finalizar:
+
+```
+status = completed
+
+result = JSONB
+
+credits_consumed = 50
+```
+
+---
+
+### Resultado
+
+O resultado é persistido integralmente em:
+
+```
+executions.result
+```
+
+Nunca apenas como texto.
+
+---
+
+### Cenários de Falha
+
+#### Falha de validação
+
+Nenhum registro é criado.
+
+---
+
+#### Créditos insuficientes
+
+```
+HTTP 402
+
+Execution NÃO criada.
+```
+
+---
+
+#### Falha ao enviar Job
+
+Execution:
+
+```
+status = failed
+```
+
+Erro registrado.
+
+---
+
+#### Timeout do n8n
+
+Execution:
+
+```
+failed
+```
+
+Sem débito adicional além da política definida pelo domínio.
+
+A política de estorno não está documentada.
+
+**[A DEFINIR]**
+
+---
+
+#### Callback inválido
+
+Descartado.
+
+Execution permanece:
+
+```
+processing
+```
+
+até timeout interno.
+
+---
+
+# 6.3 Pipeline — Briefing Generation
+
+## Objetivo
+
+Produzir um briefing estruturado para orientar futuras gerações.
+
+---
+
+## Consumo
+
+| Ação | Créditos |
+|------|----------:|
+| Briefing Generation | **5** |
+
+---
+
+## Fluxo
+
+```text
+Briefing
+
+↓
+
+Execution
+
+↓
+
+Queue
+
+↓
+
+n8n
+
+↓
+
+IA
+
+↓
+
+JSON
+
+↓
+
+Callback
+
+↓
+
+Completed
+```
+
+---
+
+## Resultado
+
+Persistido em:
+
+```
+result JSONB
+```
+
+---
+
+## Estado Final
+
+```
+completed
+```
+
+ou
+
+```
+failed
+```
+
+---
+
+# 6.4 Pipeline — Image Generation
+
+## Objetivo
+
+Produzir imagens para ativos da Brand.
+
+---
+
+## Consumo
+
+| Ação | Créditos |
+|------|----------:|
+| Image Generation | **7** |
+
+---
+
+## Fluxo
+
+```text
+Execution
+
+↓
+
+Queue
+
+↓
+
+n8n
+
+↓
+
+Modelo IA
+
+↓
+
+Imagem
+
+↓
+
+Laravel
+
+↓
+
+Execution
+```
+
+---
+
+## Persistência
+
+Os documentos não especificam:
+
+- formato do retorno;
+- armazenamento físico da imagem;
+- object storage.
+
+Esses itens permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 6.5 Pipeline — Create Article
+
+## Objetivo
+
+Gerar um artigo completo utilizando a memória da Brand.
+
+---
+
+## Consumo
+
+```
+[A DEFINIR]
+```
+
+---
+
+## Fluxo
+
+```text
+Execution
+
+↓
+
+Queue
+
+↓
+
+n8n
+
+↓
+
+Claude
+
+↓
+
+Resultado
+
+↓
+
+Execution
+```
+
+---
+
+## Resultado
+
+JSON estruturado.
+
+Estrutura:
+
+**[A DEFINIR]**
+
+---
+
+# 6.6 Pipeline — Create Post
+
+## Objetivo
+
+Gerar conteúdo para redes sociais.
+
+---
+
+## Consumo
+
+```
+[A DEFINIR]
+```
+
+---
+
+## Fluxo
+
+Mesmo fluxo arquitetural dos demais pipelines.
+
+---
+
+## Resultado
+
+Persistido em:
+
+```
+result JSONB
+```
+
+---
+
+# 6.7 Pipeline — Create Ad
+
+## Objetivo
+
+Gerar peças publicitárias.
+
+---
+
+## Consumo
+
+```
+[A DEFINIR]
+```
+
+---
+
+## Fluxo
+
+```text
+Execution
+
+↓
+
+Queue
+
+↓
+
+n8n
+
+↓
+
+Modelo IA
+
+↓
+
+Resultado
+
+↓
+
+Callback
+
+↓
+
+Execution
+```
+
+---
+
+# 6.8 Máquina de Estados
+
+Todos os pipelines compartilham exatamente a mesma máquina de estados.
+
+```text
+pending
+
+↓
+
+processing
+
+↓
+
+completed
+```
+
+ou
+
+```text
+pending
+
+↓
+
+processing
+
+↓
+
+failed
+```
+
+Nenhum pipeline possui estados exclusivos documentados.
+
+---
+
+# 6.9 Consumo de Créditos
+
+Fluxo esperado:
+
+```text
+EnsureCreditBalance
+
+↓
+
+Execution criada
+
+↓
+
+Pipeline executado
+
+↓
+
+Conclusão
+
+↓
+
+Débito dos créditos
+```
+
+O momento exato do débito (antes do envio ao n8n ou após confirmação de processamento) não está explicitamente definido na documentação.
+
+**[A DEFINIR]**
+
+---
+
+# 6.10 Reexecuções
+
+A documentação disponível não descreve mecanismo oficial de retry por parte do usuário.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+# 6.11 Idempotência
+
+Cada execução representa um processamento único.
+
+Nunca reutilizar um registro existente para uma nova solicitação.
+
+Nova solicitação ⇒ nova Execution.
+
+---
+
+# 6.12 Cenários Gerais de Falha
+
+## Erro de Validação
+
+Consequências:
+
+- nenhuma Execution criada;
+- nenhuma fila;
+- nenhum débito.
+
+---
+
+## Sem Assinatura
+
+Resposta:
+
+```
+HTTP 402
+```
+
+Sem criação da Execution.
+
+---
+
+## Sem Créditos
+
+Resposta:
+
+```
+HTTP 402
+```
+
+Interface deve apresentar CTA:
+
+```
+Buy AI Credits
+```
+
+---
+
+## Job Falhou
+
+Execution:
+
+```
+failed
+```
+
+Erro registrado.
+
+Broadcast enviado.
+
+---
+
+## Worker Offline
+
+Execution permanece:
+
+```
+pending
+```
+
+Até que um Worker Horizon disponível processe a fila.
+
+---
+
+## n8n Offline
+
+Execution:
+
+```
+failed
+```
+
+ou permanece em processamento conforme estratégia de retry.
+
+A política oficial de retry não está documentada.
+
+**[A DEFINIR]**
+
+---
+
+## APIs Externas Indisponíveis
+
+O n8n deve retornar erro estruturado.
+
+Laravel nunca tenta interpretar erros específicos das APIs externas.
+
+---
+
+## Callback Inválido
+
+Descartado.
+
+Nenhum dado persistido.
+
+---
+
+## Timeout HTTP
+
+A chamada Laravel → n8n possui timeout próprio (documentado na seção seguinte).
+
+Ao atingir o limite:
+
+Execution:
+
+```
+failed
+```
+
+---
+
+> ⚠️ **Regra crítica:** Toda execução deve possuir um registro persistido na tabela `executions` antes de qualquer comunicação com o n8n. Nenhum pipeline pode ser executado diretamente durante a requisição HTTP do usuário.
+
+---
+
+# 7. Contrato de Comunicação Laravel ↔ n8n
+
+## 7.1 Visão Geral
+
+Laravel e n8n comunicam-se exclusivamente através de requisições HTTP autenticadas.
+
+Não existe:
+
+- acesso compartilhado ao banco;
+- acesso compartilhado ao Redis;
+- RPC;
+- WebSockets entre os serviços.
+
+Todo intercâmbio de dados ocorre por payloads JSON.
+
+---
+
+## 7.2 Fluxo
+
+```text
+Laravel
+
+↓
+
+HTTP POST
+
+↓
+
+n8n
+
+↓
+
+Processamento
+
+↓
+
+HTTP POST
+
+↓
+
+Laravel Callback
+```
+
+---
+
+## 7.3 Payload — Laravel → n8n
+
+Todo pipeline deve enviar um payload JSON contendo, no mínimo:
+
+```json
+{
+  "execution_id": 154,
+  "pipeline_type": "brand_research",
+  "user_id": 12,
+  "project_id": 8,
+  "credits_cost": 50,
+  "locale": "en",
+  "config": {},
+  "requested_at": "2026-07-01T15:30:00Z"
+}
+```
+
+### Campos
+
+| Campo | Tipo | Obrigatório | Descrição |
+|--------|------|-------------|-----------|
+| execution_id | integer | Sim | Identificador da execução |
+| pipeline_type | string | Sim | Tipo do pipeline |
+| user_id | integer | Sim | Usuário proprietário |
+| project_id | integer | Sim | Brand da execução |
+| credits_cost | integer | Sim | Custo previsto em créditos |
+| locale | string | Sim | Idioma da execução |
+| config | object | Sim | Configuração específica do pipeline |
+| requested_at | datetime ISO8601 | Sim | Timestamp de envio |
+
+A estrutura interna de `config` varia conforme o pipeline e permanece **[A DEFINIR]** quando não especificada nos documentos.
+
+
+## 7.4 Payload — n8n → Laravel (Callback)
+
+Ao concluir um pipeline, o n8n deve realizar uma requisição HTTP para um endpoint de callback do Laravel.
+
+O callback representa o único mecanismo permitido para atualização do estado de uma execução.
+
+---
+
+### Payload Base
+
+```json
+{
+  "execution_id": 154,
+  "status": "completed",
+  "pipeline_type": "brand_research",
+  "tokens_used": 18432,
+  "credits_consumed": 50,
+  "result": {},
+  "finished_at": "2026-07-01T15:37:42Z",
+  "error": null
+}
+```
+
+---
+
+### Campos
+
+| Campo | Tipo | Obrigatório | Descrição |
+|--------|------|-------------|-----------|
+| execution_id | integer | Sim | Identificador da execução |
+| status | string | Sim | Estado final |
+| pipeline_type | string | Sim | Tipo do pipeline executado |
+| tokens_used | integer | Sim | Tokens consumidos |
+| credits_consumed | integer | Sim | Créditos efetivamente consumidos |
+| result | object | Condicional | Resultado estruturado |
+| finished_at | datetime ISO8601 | Sim | Data/hora de conclusão |
+| error | object/null | Condicional | Estrutura de erro |
+
+---
+
+## Status Permitidos
+
+```text
+completed
+
+failed
+```
+
+Outros estados não são documentados para callbacks provenientes do n8n.
+
+---
+
+## Callback de Sucesso
+
+```json
+{
+  "execution_id": 154,
+  "status": "completed",
+  "result": {
+    "...": "..."
+  }
+}
+```
+
+Laravel deve:
+
+1. localizar a Execution;
+2. validar o segredo compartilhado;
+3. atualizar o status;
+4. persistir `result`;
+5. registrar `tokens_used`;
+6. registrar `credits_consumed`;
+7. registrar `finished_at`;
+8. disparar evento de broadcast.
+
+---
+
+## Callback de Erro
+
+```json
+{
+  "execution_id": 154,
+  "status": "failed",
+  "error": {
+    "message": "Pipeline timeout"
+  }
+}
+```
+
+Laravel nunca interpreta erros internos das APIs externas.
+
+O conteúdo de `error` é armazenado apenas para auditoria.
+
+A estrutura completa desse objeto permanece:
+
+**[A DEFINIR]**
+
+---
+
+# 7.5 Headers Obrigatórios
+
+## Laravel → n8n
+
+```http
+Content-Type: application/json
+
+Accept: application/json
+
+X-N8N-Secret: ********
+
+User-Agent: TinyAILab/Laravel
+```
+
+---
+
+## n8n → Laravel
+
+```http
+Content-Type: application/json
+
+Accept: application/json
+
+X-N8N-Secret: ********
+```
+
+Headers adicionais não estão documentados.
+
+---
+
+# 7.6 Timeout
+
+Toda chamada HTTP iniciada pelo Laravel deve possuir timeout máximo de:
+
+```
+10 segundos
+```
+
+Exemplo conceitual:
+
+```php
+Http::timeout(10)
+```
+
+Timeouts superiores não fazem parte da arquitetura documentada.
+
+---
+
+# 7.7 Estratégia de Atualização
+
+Fluxo esperado:
+
+```text
+Execution
+
+↓
+
+pending
+
+↓
+
+Job
+
+↓
+
+HTTP
+
+↓
+
+n8n
+
+↓
+
+completed
+
+↓
+
+Callback
+
+↓
+
+Execution::update()
+
+↓
+
+Broadcast
+```
+
+A atualização do banco ocorre exclusivamente após o callback.
+
+---
+
+# 7.8 Idempotência
+
+Caso o callback seja recebido mais de uma vez para a mesma execução, o comportamento esperado deve evitar atualizações inconsistentes.
+
+A estratégia de idempotência (por exemplo, rejeição de callbacks para execuções já finalizadas) não está explicitamente documentada.
+
+**[A DEFINIR]**
+
+---
+
+# 7.9 Responsabilidades
+
+## Laravel
+
+Responsável por:
+
+- autenticação;
+- autorização;
+- validação;
+- persistência;
+- filas;
+- broadcasting;
+- créditos;
+- assinatura.
+
+---
+
+## n8n
+
+Responsável apenas por:
+
+- executar pipelines;
+- integrar APIs;
+- montar o JSON de retorno.
+
+---
+
+# 7.10 Regras Invioláveis
+
+## Regra 1
+
+O n8n nunca acessa o banco de dados.
+
+---
+
+## Regra 2
+
+O n8n nunca autentica usuários.
+
+---
+
+## Regra 3
+
+O n8n nunca responde diretamente ao navegador.
+
+Fluxo proibido:
+
+```text
+Browser
+
+↓
+
+n8n
+```
+
+---
+
+## Regra 4
+
+Laravel nunca delega regras de negócio ao n8n.
+
+---
+
+## Regra 5
+
+Todo resultado produzido deve retornar para o Laravel antes de chegar ao usuário.
+
+---
+
+## Regra 6
+
+Toda comunicação deve utilizar JSON.
+
+---
+
+## Regra 7
+
+Todo callback deve validar:
+
+```
+X-N8N-Secret
+```
+
+antes de qualquer processamento.
+
+---
+
+> ⚠️ **Regra crítica:** O n8n é um mecanismo de orquestração, não um componente de domínio. Ele nunca deve acessar PostgreSQL, Redis, autenticar usuários, enviar respostas diretamente ao frontend ou implementar regras de negócio da aplicação.
+
+---
+
+# 8. Arquitetura de Filas e Jobs
+
+## 8.1 Visão Geral
+
+Toda execução de IA é obrigatoriamente processada de forma assíncrona.
+
+O usuário nunca aguarda a conclusão de um pipeline durante a requisição HTTP.
+
+Laravel Horizon é responsável por:
+
+- gerenciamento das filas;
+- monitoramento dos Workers;
+- retry de Jobs;
+- métricas operacionais.
+
+Redis atua como backend das filas.
+
+---
+
+## Fluxo Geral
+
+```text
+Usuário
+
+↓
+
+Controller / Livewire
+
+↓
+
+Execution
+
+↓
+
+Dispatch(Job)
+
+↓
+
+Redis
+
+↓
+
+Worker Horizon
+
+↓
+
+n8n
+
+↓
+
+Callback
+
+↓
+
+Broadcast
+```
+
+---
+
+## 8.2 Filas
+
+A documentação identifica três filas lógicas.
+
+| Fila | Finalidade |
+|------|------------|
+| default | Processamento geral de pipelines |
+| viral-refs | Atualização da base de referências virais |
+| notifications | Notificações assíncronas |
+
+---
+
+## default
+
+Responsável por:
+
+- Brand Research;
+- Briefing;
+- Image Generation;
+- Create Article;
+- Create Post;
+- Create Ad.
+
+---
+
+## viral-refs
+
+Responsável exclusivamente pela atualização da tabela:
+
+```
+video_references
+```
+
+---
+
+## notifications
+
+Responsável por:
+
+- notificações;
+- broadcasts assíncronos quando aplicável;
+- processos auxiliares de comunicação.
+
+---
+
+# 8.3 Job — ExecutePipelineJob
+
+## Responsabilidade
+
+Representa o Job principal da plataforma.
+
+É responsável por iniciar qualquer pipeline no n8n.
+
+---
+
+### Fila
+
+```
+default
+```
+
+---
+
+### tries
+
+```
+[A DEFINIR]
+```
+
+---
+
+### backoff
+
+```
+[A DEFINIR]
+```
+
+---
+
+### timeout
+
+```
+10 segundos (requisição HTTP ao n8n)
+```
+
+O tempo total permitido para o Job não está documentado.
+
+**[A DEFINIR]**
+
+---
+
+### handle()
+
+Fluxo esperado:
+
+```text
+Recebe Execution
+
+↓
+
+Atualiza status
+
+↓
+
+processing
+
+↓
+
+HTTP POST
+
+↓
+
+n8n
+
+↓
+
+Finaliza
+```
+
+O Job não conclui a execução; a conclusão depende do callback do n8n.
+
+---
+
+### failed()
+
+Responsabilidades:
+
+- registrar erro;
+- atualizar status para `failed`;
+- disparar evento de falha.
+
+---
+
+# 8.4 Job — UpdateViralReferencesJob
+
+## Responsabilidade
+
+Atualizar o banco de referências virais.
+
+---
+
+### Fila
+
+```
+viral-refs
+```
+
+---
+
+### tries
+
+```
+[A DEFINIR]
+```
+
+---
+
+### backoff
+
+```
+[A DEFINIR]
+```
+
+---
+
+### handle()
+
+Fluxo esperado:
+
+```text
+Consulta
+
+↓
+
+Pipeline
+
+↓
+
+Upsert
+
+↓
+
+video_references
+```
+
+---
+
+### failed()
+
+Registrar erro para auditoria.
+
+---
+
+# 8.5 Job — SendNotificationJob
+
+## Responsabilidade
+
+Processar notificações assíncronas.
+
+---
+
+### Fila
+
+```
+notifications
+```
+
+---
+
+### tries
+
+```
+[A DEFINIR]
+```
+
+---
+
+### backoff
+
+```
+[A DEFINIR]
+```
+
+---
+
+### handle()
+
+Enviar a notificação correspondente.
+
+O mecanismo específico (database, mail, push etc.) não está completamente definido na documentação.
+
+**[A DEFINIR]**
+
+---
+
+### failed()
+
+Registrar erro.
+
+---
+
+# 8.6 Horizon
+
+Laravel Horizon constitui a interface oficial de gerenciamento das filas.
+
+---
+
+## Supervisors
+
+A configuração detalhada de Supervisors não está presente na documentação.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+## Workers
+
+Os documentos não especificam a quantidade de Workers por fila.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+## Dashboard
+
+O acesso ao Horizon deve permanecer restrito ao ambiente administrativo.
+
+A estratégia de autorização (Gate, Policy ou outro mecanismo) não está documentada.
+
+**[A DEFINIR]**
+
+---
+
+## Monitoramento
+
+O Horizon deve monitorar:
+
+- Jobs pendentes;
+- Jobs falhos;
+- tempo médio de processamento;
+- throughput.
+
+A configuração exata de métricas permanece:
+
+**[A DEFINIR]**
+
+---
+
+> ⚠️ **Regra crítica:** Nenhum pipeline de IA pode ser executado diretamente em Controllers, componentes Livewire ou durante a requisição HTTP do usuário. Toda execução deve ser despachada para uma fila Redis e processada por um Worker do Laravel Horizon.
+
+
+# 9. WebSockets e Tempo Real
+
+## 9.1 Visão Geral
+
+O Tiny AI Lab utiliza **Laravel Reverb** como mecanismo oficial de comunicação em tempo real.
+
+Toda atualização de estado das execuções deve ser propagada imediatamente para a interface sem necessidade de atualização manual da página.
+
+O uso de polling é considerado apenas um mecanismo de contingência.
+
+---
+
+## 9.2 Arquitetura
+
+```text
+Worker Horizon
+
+↓
+
+Execution atualizada
+
+↓
+
+Evento Laravel
+
+↓
+
+Laravel Reverb
+
+↓
+
+Canal WebSocket
+
+↓
+
+Livewire
+
+↓
+
+Interface
+```
+
+---
+
+## 9.3 Papel do Reverb
+
+Responsabilidades:
+
+- publicar eventos;
+- distribuir mensagens em tempo real;
+- reduzir polling constante;
+- atualizar componentes Livewire.
+
+O Reverb não substitui o banco de dados.
+
+Toda informação continua sendo persistida no PostgreSQL antes do broadcast.
+
+---
+
+## 9.4 Canais
+
+A documentação identifica necessidade de isolamento por usuário.
+
+O nome exato dos canais não está documentado.
+
+Permanece:
+
+**[A DEFINIR]**
+
+Exemplo conceitual:
+
+```
+private-user.{id}
+```
+
+ou
+
+```
+private-execution.{id}
+```
+
+A definição oficial deverá ser realizada durante a implementação.
+
+---
+
+## 9.5 Autorização
+
+Todos os canais devem ser privados.
+
+A autorização ocorre através do Laravel.
+
+Fluxo:
+
+```text
+Cliente
+
+↓
+
+Solicita canal
+
+↓
+
+Laravel
+
+↓
+
+Policy
+
+↓
+
+Autorizado?
+
+↓
+
+Reverb
+```
+
+Nunca permitir canais públicos contendo informações de execução.
+
+---
+
+## 9.6 Evento `ExecutionUpdated`
+
+### Objetivo
+
+Notificar a interface sobre mudanças de estado de uma execução.
+
+---
+
+### Quando disparar
+
+Sempre que:
+
+- status mudar;
+- processamento terminar;
+- resultado ficar disponível.
+
+---
+
+### Payload
+
+Nunca transmitir o resultado completo.
+
+Payload mínimo:
+
+```json
+{
+  "execution_id": 154,
+  "status": "completed",
+  "pipeline_type": "brand_research",
+  "updated_at": "2026-07-01T15:37:42Z"
+}
+```
+
+---
+
+### Campos
+
+| Campo | Tipo |
+|--------|------|
+| execution_id | integer |
+| status | string |
+| pipeline_type | string |
+| updated_at | datetime |
+
+---
+
+### Não transmitir
+
+Nunca incluir:
+
+```
+result
+
+config
+
+tokens completos
+
+prompts
+
+JSONB
+```
+
+Esses dados devem ser buscados posteriormente pelo componente Livewire.
+
+---
+
+# 9.7 Evento `ExecutionFailed`
+
+## Objetivo
+
+Informar imediatamente falhas de processamento.
+
+---
+
+### Payload
+
+```json
+{
+  "execution_id": 154,
+  "status": "failed",
+  "pipeline_type": "brand_research"
+}
+```
+
+---
+
+### Responsabilidade da Interface
+
+Ao receber o evento:
+
+- atualizar badge de status;
+- remover loading;
+- exibir mensagem de erro apropriada.
+
+---
+
+# 9.8 Fluxo Completo
+
+```text
+Worker
+
+↓
+
+Execution::update()
+
+↓
+
+Event()
+
+↓
+
+Broadcast
+
+↓
+
+Reverb
+
+↓
+
+Browser
+
+↓
+
+Livewire Refresh
+```
+
+---
+
+# 9.9 Livewire
+
+Os componentes Livewire permanecem responsáveis por:
+
+- atualização visual;
+- renderização;
+- carregamento do resultado completo.
+
+O Reverb apenas informa que houve alteração.
+
+---
+
+# 9.10 Fallback
+
+Caso o WebSocket esteja indisponível:
+
+Livewire deve recorrer a polling periódico.
+
+Fluxo:
+
+```text
+Livewire
+
+↓
+
+wire:poll
+
+↓
+
+Consulta status
+
+↓
+
+Atualiza interface
+```
+
+O intervalo oficial de polling não está documentado.
+
+**[A DEFINIR]**
+
+---
+
+# 9.11 Ordem dos Eventos
+
+A sequência correta é:
+
+```text
+Persistência
+
+↓
+
+Commit
+
+↓
+
+Broadcast
+```
+
+Nunca transmitir um evento antes que a atualização tenha sido persistida.
+
+---
+
+> ⚠️ **Regra crítica:** Eventos de broadcast nunca devem transportar o conteúdo completo de `executions.result`. O WebSocket serve apenas para sinalizar mudanças de estado; o carregamento do JSON completo deve ocorrer por consulta controlada ao Laravel.
+
+---
+
+# 10. Design System e Frontend
+
+## 10.1 Visão Geral
+
+A interface do Tiny AI Lab é construída integralmente utilizando:
+
+- Blade;
+- Livewire 3;
+- Alpine.js;
+- Tailwind CSS.
+
+Não existe frontend desacoplado.
+
+O Design System constitui parte da arquitetura e deve ser seguido rigorosamente por qualquer agente responsável pela geração de componentes.
+
+O modo escuro (**Dark First**) representa a aparência oficial da plataforma.
+
+---
+
+# 10.2 Configuração do Tailwind
+
+Arquivo:
+
+```
+tailwind.config.js
+```
+
+Configuração obrigatória:
+
+```javascript
+export default {
+
+    darkMode: 'class',
+
+    theme: {
+
+        extend: {
+
+            colors: {
+
+                orange: {
+
+                    50: '#fff4ed',
+
+                    100: '#ffe6d4',
+
+                    200: '#ffc8a8',
+
+                    300: '#ffa270',
+
+                    400: '#ff7438',
+
+                    500: '#ff5500',
+
+                    600: '#f04000',
+
+                    700: '#c82e02',
+
+                    800: '#9e250a',
+
+                    900: '#7e220c',
+
+                },
+
+                app: {
+
+                    bg: '#111111',
+
+                    card: '#1c1c1c'
+
+                }
+
+            },
+
+            fontFamily: {
+
+                sans: ['Inter', 'sans-serif']
+
+            }
+
+        }
+
+    }
+
+}
+```
+
+Esta configuração constitui a base oficial do Design System.
+
+---
+
+# 10.3 Princípios do Design
+
+O sistema segue os seguintes princípios:
+
+- Dark First;
+- alto contraste;
+- interface minimalista;
+- foco em produtividade;
+- uso consistente da cor de marca;
+- componentes reutilizáveis;
+- tipografia única.
+
+---
+
+# 10.4 Paleta de Superfícies
+
+## Background Global
+
+```
+#111111
+```
+
+Token:
+
+```
+app-bg
+```
+
+Papel:
+
+Background principal do `<body>`.
+
+---
+
+## Card
+
+```
+#1c1c1c
+```
+
+Token:
+
+```
+app-card
+```
+
+Utilizado em:
+
+- cards;
+- painéis;
+- modais;
+- widgets.
+
+---
+
+## Sidebar
+
+```
+#1C1917
+```
+
+Papel:
+
+Background da navegação principal.
+
+---
+
+## Bordas
+
+```
+#292524
+```
+
+Utilizado para:
+
+- inputs;
+- divisórias;
+- tabelas;
+- cards.
+
+---
+
+## Hover Secundário
+
+```
+#44403C
+```
+
+Utilizado para:
+
+- itens ativos;
+- hover de menus.
+
+---
+
+## Hover Claro
+
+```
+#554f49
+```
+
+Utilizado para estados intermediários.
+
+---
+
+## Texto Secundário
+
+```
+#A8A29E
+```
+
+Utilizado para:
+
+- placeholders;
+- labels;
+- textos auxiliares.
+
+---
+
+## Texto Primário
+
+```
+#FAFAFA
+```
+
+Utilizado em:
+
+- títulos;
+- conteúdos principais.
+
+---
+
+## Cor da Marca
+
+```
+#FF5500
+```
+
+Utilizada para:
+
+- CTA principal;
+- ícones ativos;
+- indicadores;
+- botões primários.
+
+---
+
+## Hover CTA
+
+```
+#E64D00
+```
+
+Utilizado exclusivamente para hover do botão primário.
+
+---
+
+# 10.5 Regras Gerais
+
+Nunca criar novas cores para componentes.
+
+Todo elemento deve utilizar exclusivamente os tokens documentados.
+
+Novos componentes devem reutilizar a paleta existente.
+
+---
+
+> ⚠️ **Regra crítica:** O Design System faz parte da arquitetura do sistema. Não criar novas cores, variações ou tokens fora dos definidos nesta seção. Toda interface deve reutilizar exclusivamente a paleta oficial documentada acima.
+
+
+# 10.6 Tipografia
+
+## Fonte Oficial
+
+Toda a aplicação utiliza exclusivamente a família tipográfica **Inter**.
+
+Origem:
+
+- Google Fonts; ou
+- Bundle via Vite.
+
+Não existem fontes secundárias documentadas.
+
+---
+
+## Configuração
+
+```css
+font-family: 'Inter', sans-serif;
+```
+
+No Tailwind:
+
+```javascript
+fontFamily: {
+    sans: ['Inter', 'sans-serif']
+}
+```
+
+---
+
+## Pesos Utilizados
+
+| Peso | Uso |
+|-------|-----|
+| 400 | Texto corrido |
+| 500 | Labels, botões, badges |
+| 600 | Headings |
+| 700 | Títulos principais |
+
+Outros pesos não fazem parte do Design System.
+
+---
+
+## Tamanhos Especiais
+
+Os HTMLs identificam dois tamanhos adicionais além da escala padrão do Tailwind.
+
+| Tamanho | Utilização |
+|----------|------------|
+| 10px | Badges, indicadores pequenos |
+| 11px | Legendas, textos auxiliares |
+
+Todo o restante da tipografia deve seguir a escala padrão do Tailwind.
+
+---
+
+# 10.7 Estrutura Geral do Layout
+
+Toda a aplicação autenticada utiliza um único Application Shell.
+
+Esse shell permanece constante durante toda a navegação.
+
+Estrutura:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Header                                                   │
+├───────────────┬──────────────────────────────────────────┤
+│               │                                          │
+│               │                                          │
+│               │                                          │
+│ Sidebar       │     Main Content                         │
+│               │                                          │
+│               │                                          │
+│               │                                          │
+├───────────────┴──────────────────────────────────────────┤
+```
+
+O conteúdo principal muda conforme a página.
+
+Sidebar e Header permanecem persistentes.
+
+---
+
+# 10.8 Sidebar
+
+A Sidebar permanece fixa à esquerda.
+
+Características:
+
+- largura fixa;
+- colapsável;
+- versão mobile;
+- navegação principal;
+- seletor de Brand;
+- informações de créditos.
+
+---
+
+## Funcionalidades
+
+- navegação;
+- troca de Brand;
+- acesso ao perfil;
+- ajuda;
+- configurações;
+- logout;
+- alternância de tema.
+
+---
+
+## IDs Funcionais
+
+Os seguintes IDs são considerados parte da arquitetura da interface.
+
+| ID | Responsabilidade |
+|----|------------------|
+| sidebar | Container principal |
+| toggle-btn | Colapsar Sidebar |
+| mobile-overlay | Overlay mobile |
+| client-dropdown-container | Dropdown de Brand |
+| client-dropdown-btn | Botão da Brand |
+| theme-toggle-btn | Alternância de tema |
+| help-btn | Menu Help |
+| help-submenu | Submenu de ajuda |
+| logout-btn | Logout |
+
+Esses identificadores devem permanecer estáveis para manter compatibilidade entre componentes.
+
+---
+
+# 10.9 Header
+
+O Header permanece fixo na parte superior da aplicação.
+
+---
+
+## Componentes
+
+Da esquerda para direita:
+
+- busca global;
+- botão "Ask AI";
+- notificações;
+- seletor de idioma;
+- perfil do usuário.
+
+---
+
+## IDs Funcionais
+
+| ID | Função |
+|----|--------|
+| btn-ask-ai | Botão principal de IA |
+| notif-dropdown-container | Dropdown notificações |
+| lang-dropdown-container | Idiomas |
+| search-container | Busca global |
+| profile-dropdown-container | Perfil |
+
+Esses IDs não devem ser alterados.
+
+---
+
+# 10.10 Área Principal
+
+Responsável por renderizar as páginas Livewire.
+
+Estrutura:
+
+```text
+Header
+
+↓
+
+Content Wrapper
+
+↓
+
+Livewire Component
+
+↓
+
+Blade View
+```
+
+Não existe SPA externa.
+
+Toda navegação permanece dentro do layout Blade.
+
+---
+
+# 10.11 Navegação da Sidebar
+
+A ordem dos menus é parte do Design System.
+
+Não deve ser alterada.
+
+---
+
+## HOME
+
+```
+Dashboard
+```
+
+---
+
+## BRAND
+
+```
+Brand Core
+
+Brand Assets
+
+Research and Strategy
+```
+
+---
+
+## GENERATE
+
+```
+Create Article
+
+Create Post
+
+Create Ad
+
+Library
+```
+
+---
+
+## Footer
+
+A parte inferior da Sidebar contém:
+
+```
+Brand Switcher
+
+↓
+
+Credits Used
+
+↓
+
+Buy AI Credits
+
+↓
+
+Theme Toggle
+
+↓
+
+Profile
+
+↓
+
+Help and Support
+
+↓
+
+Settings
+
+↓
+
+Log out
+```
+
+---
+
+## Help and Support
+
+O submenu contém:
+
+```
+Quick Start Guide
+
+Support
+
+Documentation
+
+Academy
+
+Report a Bug / Suggest
+```
+
+---
+
+## Créditos
+
+O design identifica um indicador semelhante a:
+
+```
+100 / 10000 credits used
+```
+
+Este componente representa apenas a visualização do consumo.
+
+O cálculo é realizado no backend.
+
+---
+
+## Buy AI Credits
+
+CTA permanente na Sidebar.
+
+Responsável por iniciar o fluxo Stripe para compra de créditos adicionais.
+
+---
+
+# 10.12 Componentes Blade + Livewire
+
+A arquitetura estabelece um mapeamento direto entre os arquivos HTML de referência e os componentes Laravel.
+
+---
+
+## Sidebar
+
+HTML
+
+```
+sidebar.html
+```
+
+Implementação
+
+```
+resources/views/components/sidebar.blade.php
+
+app/Livewire/Sidebar.php
+```
+
+Responsável por:
+
+- navegação;
+- Brand ativa;
+- créditos;
+- menus.
+
+---
+
+## Header
+
+HTML
+
+```
+header.html
+```
+
+Implementação
+
+```
+resources/views/components/header.blade.php
+
+app/Livewire/Header.php
+```
+
+Responsabilidades:
+
+- notificações;
+- perfil;
+- idioma;
+- busca.
+
+---
+
+## Dashboard
+
+```
+dashboard.html
+```
+
+↓
+
+```
+resources/views/pages/dashboard.blade.php
+
+app/Livewire/Dashboard.php
+```
+
+---
+
+## Logout Modal
+
+```
+logout-modal.html
+```
+
+↓
+
+```
+resources/views/livewire/logout-modal.blade.php
+
+app/Livewire/LogoutModal.php
+```
+
+---
+
+## Brand Core
+
+```
+brand_core.html
+```
+
+↓
+
+```
+resources/views/pages/brand-core.blade.php
+
+app/Livewire/BrandCore.php
+```
+
+---
+
+## Brand Assets
+
+Visual Identity
+
+```
+app/Livewire/BrandAssets/VisualIdentity.php
+```
+
+Characters
+
+```
+app/Livewire/BrandAssets/Characters.php
+```
+
+Products
+
+```
+app/Livewire/BrandAssets/Products.php
+```
+
+---
+
+## Marketing
+
+Market Research
+
+```
+app/Livewire/Marketing/MarketResearch.php
+```
+
+Buyer Personas
+
+```
+app/Livewire/Marketing/BuyerPersonas.php
+```
+
+Social Strategy
+
+```
+app/Livewire/Marketing/SocialStrategy.php
+```
+
+---
+
+# 10.13 Padrões Alpine.js
+
+Toda interação leve da interface utiliza Alpine.js.
+
+---
+
+## Dropdowns
+
+Sempre utilizar:
+
+```html
+x-show
+```
+
+Fechamento:
+
+```html
+@click.outside
+```
+
+---
+
+## Modais
+
+Controle:
+
+```html
+x-data
+```
+
+Transições:
+
+```
+transition-opacity
+
+scale-95
+
+↓
+
+scale-100
+```
+
+---
+
+## Sidebar Mobile
+
+Estrutura identificada:
+
+```
+mobile-overlay
+
+↓
+
+mobile-menu-btn
+```
+
+---
+
+## Tema
+
+Alternância através da classe:
+
+```html
+<html class="dark">
+```
+
+Persistência:
+
+```
+localStorage
+```
+
+---
+
+## Multi Brand
+
+Dropdown:
+
+```
+client-dropdown-container
+```
+
+Seleciona a Brand ativa.
+
+---
+
+# 10.14 Multi-Brand (Brand Switcher)
+
+O conceito de Multi-Brand constitui uma das bases arquiteturais do Tiny AI Lab.
+
+Todo usuário trabalha dentro de um Workspace composto por múltiplas Brands independentes.
+
+Cada Brand possui seu próprio contexto de:
+
+- execuções;
+- ativos;
+- pesquisas;
+- resultados;
+- estratégia.
+
+---
+
+## Estado da Brand Ativa
+
+A documentação indica que existe exatamente uma Brand ativa por sessão.
+
+O mecanismo específico de persistência (Sessão Laravel, componente Livewire global ou outro) não é explicitamente definido.
+
+Portanto:
+
+**Estado da Brand ativa:** **[A DEFINIR]**
+
+---
+
+## Escopo das Queries
+
+Toda consulta ao banco deve ser automaticamente filtrada pela Brand ativa.
+
+Exemplo correto:
+
+```php
+Execution::query()
+    ->where('project_id', $activeProject->id);
+```
+
+Nunca retornar registros de outra Brand, mesmo pertencentes ao mesmo usuário.
+
+---
+
+## Componente BrandSwitcher
+
+Responsável por:
+
+- listar Brands;
+- alterar Brand ativa;
+- atualizar contexto da aplicação.
+
+Implementação prevista:
+
+```
+app/Livewire/BrandSwitcher.php
+```
+
+View:
+
+```
+resources/views/livewire/brand-switcher.blade.php
+```
+
+---
+
+## Atualização do Contexto
+
+Ao selecionar uma nova Brand:
+
+1. atualizar o estado da Brand ativa;
+2. invalidar dados dependentes;
+3. recarregar componentes Livewire;
+4. todas as consultas subsequentes passam a utilizar o novo `project_id`.
+
+A estratégia de propagação entre componentes permanece **[A DEFINIR]**.
+
+---
+
+> ⚠️ **Regra crítica:** A Brand ativa define todo o contexto funcional da aplicação. Nenhum componente, Controller, Query, Job ou Policy pode acessar dados sem aplicar o escopo da Brand ativa (`project_id`). Nunca assuma que `user_id` é suficiente para isolar informações.
+
+
+# 11. Estrutura de Diretórios e Responsabilidades
+
+## 11.1 Visão Geral
+
+O Tiny AI Lab adota a estrutura padrão do Laravel 11, organizada por responsabilidade de domínio.
+
+Os componentes Livewire representam a camada de apresentação reativa.
+
+A lógica de negócio permanece concentrada em:
+
+- Models;
+- Services;
+- Jobs;
+- Policies;
+- Middleware.
+
+Controllers devem permanecer enxutos.
+
+---
+
+# 11.2 Estrutura Geral
+
+```text
+app/
+├── Events/
+├── Http/
+│   ├── Controllers/
+│   ├── Middleware/
+│   └── Requests/
+├── Jobs/
+├── Livewire/
+├── Models/
+├── Policies/
+├── Providers/
+├── Services/
+└── Broadcasting/
+
+bootstrap/
+
+config/
+
+database/
+├── factories/
+├── migrations/
+└── seeders/
+
+public/
+
+resources/
+├── css/
+├── js/
+└── views/
+
+routes/
+
+storage/
+
+tests/
+```
+
+---
+
+# 11.3 Models
+
+```text
+app/Models/
+```
+
+| Arquivo | Responsabilidade |
+|----------|------------------|
+| User.php | Usuário autenticado |
+| Project.php | Brand (workspace) |
+| Execution.php | Execuções de IA |
+| VideoReference.php | Banco de referências virais |
+| PlanLimit.php | Custos e limites por plano |
+
+Laravel Cashier adiciona seus próprios Models conforme configuração padrão.
+
+---
+
+# 11.4 Livewire
+
+```text
+app/Livewire/
+```
+
+Responsável por toda interação da interface.
+
+---
+
+## Dashboard
+
+```
+Dashboard.php
+```
+
+Página inicial.
+
+---
+
+## Header
+
+```
+Header.php
+```
+
+Responsável por:
+
+- notificações;
+- idioma;
+- perfil;
+- busca.
+
+---
+
+## Sidebar
+
+```
+Sidebar.php
+```
+
+Responsável por:
+
+- navegação;
+- créditos;
+- menus;
+- Brand ativa.
+
+---
+
+## BrandSwitcher
+
+```
+BrandSwitcher.php
+```
+
+Gerencia:
+
+- Brands disponíveis;
+- troca da Brand ativa.
+
+---
+
+## LogoutModal
+
+```
+LogoutModal.php
+```
+
+Responsável pela confirmação de logout.
+
+---
+
+## Brand Core
+
+```
+BrandCore.php
+```
+
+Gerencia os dados centrais da Brand.
+
+---
+
+## BrandAssets
+
+```text
+BrandAssets/
+```
+
+### VisualIdentity.php
+
+Gerencia identidade visual.
+
+---
+
+### Characters.php
+
+Gerencia personagens.
+
+---
+
+### Products.php
+
+Gerencia produtos.
+
+---
+
+## Marketing
+
+```text
+Marketing/
+```
+
+### MarketResearch.php
+
+Pesquisa de mercado.
+
+---
+
+### BuyerPersonas.php
+
+Personas.
+
+---
+
+### SocialStrategy.php
+
+Estratégia social.
+
+---
+
+Outros componentes identificados nos HTMLs permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 11.5 Jobs
+
+```text
+app/Jobs/
+```
+
+| Arquivo | Responsabilidade |
+|----------|------------------|
+| ExecutePipelineJob.php | Executa qualquer pipeline |
+| UpdateViralReferencesJob.php | Atualiza referências |
+| SendNotificationJob.php | Processa notificações |
+
+---
+
+# 11.6 Middleware
+
+```text
+app/Http/Middleware/
+```
+
+| Arquivo | Responsabilidade |
+|----------|------------------|
+| VerifyFirebaseToken.php | Autenticação |
+| CheckSubscription.php | Assinatura |
+| EnsureCreditBalance.php | Créditos |
+
+---
+
+# 11.7 Policies
+
+```text
+app/Policies/
+```
+
+| Arquivo | Responsabilidade |
+|----------|------------------|
+| ExecutionPolicy.php | Controle das execuções |
+| ProjectPolicy.php | Controle das Brands |
+
+---
+
+# 11.8 Events
+
+```text
+app/Events/
+```
+
+Eventos identificados:
+
+```
+ExecutionUpdated
+
+ExecutionFailed
+```
+
+---
+
+# 11.9 Services
+
+```text
+app/Services/
+```
+
+Os documentos não especificam a organização detalhada desta camada.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+# 11.10 Views
+
+```text
+resources/views/
+```
+
+Estrutura esperada:
+
+```text
+views/
+
+components/
+
+layouts/
+
+pages/
+
+livewire/
+```
+
+---
+
+## Components
+
+```text
+components/
+
+sidebar.blade.php
+
+header.blade.php
+```
+
+---
+
+## Layouts
+
+```text
+layouts/
+
+app.blade.php
+```
+
+Layout principal autenticado.
+
+---
+
+## Pages
+
+```text
+pages/
+
+dashboard.blade.php
+
+brand-core.blade.php
+```
+
+Outras páginas permanecem:
+
+**[A DEFINIR]**
+
+---
+
+## Livewire
+
+```text
+livewire/
+
+logout-modal.blade.php
+
+brand-switcher.blade.php
+```
+
+Demais componentes acompanham seus respectivos arquivos PHP.
+
+---
+
+# 11.11 Routes
+
+```text
+routes/
+
+web.php
+
+channels.php
+```
+
+A documentação não identifica necessidade de API pública.
+
+---
+
+# 11.12 Config
+
+Arquivos relevantes:
+
+```text
+config/
+
+app.php
+
+queue.php
+
+broadcasting.php
+
+cashier.php
+
+database.php
+
+services.php
+
+reverb.php
+```
+
+---
+
+# 11.13 Banco
+
+```text
+database/
+
+migrations/
+
+seeders/
+
+factories/
+```
+
+Todas as alterações estruturais devem ocorrer exclusivamente através de Migrations.
+
+---
+
+# 11.14 Assets
+
+```text
+resources/
+
+css/
+
+js/
+```
+
+Compilação realizada pelo:
+
+```
+Vite
+```
+
+---
+
+# 11.15 Testes
+
+```text
+tests/
+
+Feature/
+
+Unit/
+```
+
+A organização específica de testes não está documentada.
+
+**[A DEFINIR]**
+
+---
+
+> ⚠️ **Regra crítica:** Componentes Livewire devem conter apenas lógica de apresentação e orquestração da interface. Regras de negócio não devem ser implementadas em componentes Blade ou Livewire; elas pertencem à camada de domínio (Models, Services, Jobs, Policies e Middleware).
+
+---
+
+# 12. Regras de Negócio por Plano
+
+## 12.1 Visão Geral
+
+O Tiny AI Lab utiliza um modelo baseado em créditos.
+
+O sistema **não limita o número de execuções mensais**.
+
+Cada operação consome uma quantidade específica de créditos.
+
+Essa arquitetura permite que diferentes funcionalidades possuam custos proporcionais ao processamento computacional envolvido.
+
+---
+
+# 12.2 Estrutura dos Planos
+
+A documentação confirma que os planos possuem um saldo de créditos associado.
+
+Entretanto, os valores comerciais dos planos não estão especificados.
+
+| Plano | Créditos Totais | Preço |
+|--------|----------------:|-------:|
+| **[A DEFINIR]** | **[A DEFINIR]** | **[A DEFINIR]** |
+
+Não é possível inferir esses valores sem contradizer a documentação.
+
+---
+
+# 12.3 Consumo por Ação
+
+| Ação | Créditos |
+|-------|----------:|
+| Brand Research | 50 |
+| Briefing Generation | 5 |
+| Image Generation | 7 |
+| Copywriting Edit | 15 |
+| SEO Optimization | 10 |
+| Create Article | **[A DEFINIR]** |
+| Create Post | **[A DEFINIR]** |
+| Create Ad | **[A DEFINIR]** |
+
+O custo deve ser obtido dinamicamente da tabela `plan_limits`.
+
+---
+
+# 12.4 Armazenamento do Saldo
+
+O saldo disponível é armazenado diretamente na tabela `users`.
+
+Campos identificados:
+
+| Campo | Finalidade |
+|--------|------------|
+| credits_balance | Saldo disponível |
+| credits_used_this_month | Consumo mensal |
+
+Não há documentação indicando uma tabela separada para ledger de créditos.
+
+---
+
+# 12.5 Validação Antes de Cada Ação
+
+Fluxo obrigatório:
+
+```text
+Usuário
+
+↓
+
+Pipeline solicitado
+
+↓
+
+EnsureCreditBalance
+
+↓
+
+Consulta plan_limits
+
+↓
+
+Consulta users.credits_balance
+
+↓
+
+Saldo suficiente?
+
+├── Não → HTTP 402 + CTA
+│
+└── Sim → Continuação da execução
+```
+
+Nenhuma ação que consuma créditos pode ignorar este middleware.
+
+---
+
+# 12.6 Débito de Créditos
+
+O momento exato em que ocorre o débito não está explicitamente definido.
+
+Permanece:
+
+**[A DEFINIR]**
+
+Independentemente da implementação, o débito deve refletir o valor registrado em `plan_limits`.
+
+---
+
+# 12.7 Créditos Insuficientes
+
+Quando o saldo for insuficiente:
+
+- a execução não deve ser criada;
+- nenhuma chamada ao n8n deve ocorrer;
+- retornar HTTP 402;
+- exibir CTA **"Buy AI Credits"**.
+
+---
+
+# 12.8 Compra de Créditos Adicionais
+
+A interface disponibiliza um botão permanente na Sidebar:
+
+```
+Buy AI Credits
+```
+
+Fluxo esperado:
+
+```text
+Sidebar
+
+↓
+
+Buy AI Credits
+
+↓
+
+Stripe Checkout
+
+↓
+
+Pagamento
+
+↓
+
+Webhook Stripe
+
+↓
+
+Laravel Cashier
+
+↓
+
+Atualização do saldo
+```
+
+A estratégia de incremento do saldo após a compra não está detalhada na documentação.
+
+**[A DEFINIR]**
+
+---
+
+# 12.9 Fonte da Verdade
+
+Os custos das ações nunca devem ser codificados em:
+
+- constantes;
+- enums;
+- Controllers;
+- Livewire;
+- Jobs.
+
+A única fonte oficial é:
+
+```
+plan_limits
+```
+
+com possibilidade de cache em Redis.
+
+---
+
+> ⚠️ **Regra crítica:** Nunca hardcode valores de créditos por ação. Todo custo deve ser consultado na tabela `plan_limits` (preferencialmente via cache Redis), garantindo que alterações comerciais possam ser realizadas sem mudanças no código da aplicação.
+
+
+# 13. Integrações Externas
+
+## 13.1 Visão Geral
+
+O Tiny AI Lab integra-se com serviços especializados para autenticação, cobrança, automação, inteligência artificial, monitoramento e disponibilidade.
+
+Toda integração externa deve obedecer ao seguinte princípio arquitetural:
+
+- Laravel é o orquestrador do domínio.
+- n8n é o orquestrador das integrações de IA.
+- Nenhum serviço externo possui acesso direto ao banco de dados.
+
+---
+
+# 13.2 Firebase Authentication
+
+## Propósito
+
+Responsável exclusivamente pela autenticação dos usuários.
+
+---
+
+## Chamado por
+
+Laravel.
+
+---
+
+## Responsabilidades
+
+- login;
+- emissão do ID Token;
+- verificação de identidade.
+
+---
+
+## Variáveis de Ambiente
+
+```text
+FIREBASE_PROJECT_ID
+
+FIREBASE_CREDENTIALS
+
+[A DEFINIR]
+```
+
+---
+
+## Fluxo
+
+```text
+Usuário
+
+↓
+
+Firebase
+
+↓
+
+ID Token
+
+↓
+
+Laravel
+
+↓
+
+VerifyFirebaseToken
+```
+
+---
+
+## Comportamento em Falha
+
+| Situação | Comportamento |
+|----------|---------------|
+| Token inválido | HTTP 401 |
+| Firebase indisponível | Requisição rejeitada |
+| UID inexistente | **[A DEFINIR]** |
+
+---
+
+# 13.3 Stripe + Laravel Cashier
+
+## Propósito
+
+Gerenciar:
+
+- assinaturas;
+- cobrança recorrente;
+- compra de créditos.
+
+---
+
+## Chamado por
+
+Laravel.
+
+---
+
+## Componentes
+
+- Checkout
+- Webhooks
+- Cashier
+
+---
+
+## Variáveis
+
+```text
+STRIPE_KEY
+
+STRIPE_SECRET
+
+STRIPE_WEBHOOK_SECRET
+```
+
+---
+
+## Comportamento em Falha
+
+Pagamento recusado:
+
+- assinatura permanece inalterada;
+- créditos não são adicionados.
+
+Webhook inválido:
+
+- ignorado.
+
+---
+
+# 13.4 n8n
+
+## Propósito
+
+Executar pipelines de IA.
+
+---
+
+## Chamado por
+
+Laravel.
+
+---
+
+## Responsabilidades
+
+- orquestração;
+- chamadas externas;
+- composição de resultados.
+
+---
+
+## Nunca faz
+
+- SQL;
+- autenticação;
+- autorização;
+- broadcasting.
+
+---
+
+## Variáveis
+
+```text
+N8N_URL
+
+N8N_SECRET
+```
+
+O nome oficial das variáveis permanece **[A DEFINIR]** caso difira da convenção acima.
+
+---
+
+## Comportamento em Falha
+
+- timeout;
+- indisponibilidade;
+- callback inválido.
+
+Todos os casos devem resultar em atualização apropriada da `Execution`.
+
+---
+
+# 13.5 Apify
+
+## Propósito
+
+Realizar coleta automatizada de informações públicas utilizadas pelos pipelines de pesquisa.
+
+---
+
+## Chamado por
+
+n8n.
+
+Nunca diretamente pelo Laravel.
+
+---
+
+## Variáveis
+
+```text
+APIFY_TOKEN
+```
+
+---
+
+## Falha
+
+O n8n deve capturar a falha e retornar erro estruturado ao Laravel.
+
+---
+
+# 13.6 Perplexity
+
+## Propósito
+
+Pesquisa estratégica e enriquecimento de contexto.
+
+---
+
+## Chamado por
+
+n8n.
+
+---
+
+## Variáveis
+
+```text
+PERPLEXITY_API_KEY
+```
+
+---
+
+## Falha
+
+Erro propagado ao pipeline.
+
+Laravel apenas registra o erro recebido.
+
+---
+
+# 13.7 Gemini 1.5 Flash
+
+## Propósito
+
+Raciocínio, classificação e análises durante determinados pipelines.
+
+---
+
+## Chamado por
+
+n8n.
+
+---
+
+## Variáveis
+
+```text
+GEMINI_API_KEY
+```
+
+---
+
+## Falha
+
+Tratada exclusivamente pelo workflow.
+
+---
+
+# 13.8 Claude 3.5 Sonnet
+
+## Propósito
+
+Geração de conteúdo.
+
+Aplicações identificadas:
+
+- artigos;
+- copies;
+- materiais estratégicos;
+- respostas textuais.
+
+---
+
+## Chamado por
+
+n8n.
+
+---
+
+## Variáveis
+
+```text
+ANTHROPIC_API_KEY
+```
+
+---
+
+## Falha
+
+Erro estruturado devolvido ao Laravel.
+
+---
+
+# 13.9 Cloudflare
+
+## Propósito
+
+- DNS;
+- SSL;
+- Proxy;
+- WAF;
+- CDN.
+
+---
+
+## Chamado por
+
+Usuário.
+
+Não existe integração direta de domínio.
+
+---
+
+## Variáveis
+
+Não aplicável.
+
+---
+
+## Falha
+
+Caso o Cloudflare esteja indisponível, a aplicação torna-se inacessível externamente.
+
+---
+
+# 13.10 Sentry
+
+## Propósito
+
+Monitoramento de exceções.
+
+---
+
+## Chamado por
+
+Laravel.
+
+---
+
+## Variáveis
+
+```text
+SENTRY_LARAVEL_DSN
+```
+
+Outras configurações permanecem:
+
+**[A DEFINIR]**
+
+---
+
+## Falha
+
+A indisponibilidade do Sentry nunca deve impedir o funcionamento da aplicação.
+
+---
+
+# 13.11 UptimeRobot
+
+## Propósito
+
+Monitoramento de disponibilidade.
+
+---
+
+## Chamado por
+
+Serviço externo.
+
+---
+
+## Responsabilidades
+
+Monitorar:
+
+- disponibilidade;
+- tempo de resposta;
+- indisponibilidade.
+
+---
+
+## Variáveis
+
+Não aplicável.
+
+---
+
+## Falha
+
+Não interfere no funcionamento do sistema.
+
+---
+
+# 13.12 Matriz Geral
+
+| Serviço | Chamado por | Acesso ao Banco |
+|----------|-------------|-----------------|
+| Firebase | Laravel | Não |
+| Stripe | Laravel | Não |
+| n8n | Laravel | Não |
+| Apify | n8n | Não |
+| Perplexity | n8n | Não |
+| Gemini | n8n | Não |
+| Claude | n8n | Não |
+| Cloudflare | Usuário | Não |
+| Sentry | Laravel | Não |
+| UptimeRobot | Externo | Não |
+
+---
+
+> ⚠️ **Regra crítica:** Nenhuma integração externa pode acessar diretamente o PostgreSQL. Todo dado persistido deve passar obrigatoriamente pelo domínio Laravel.
+
+---
+
+# 14. Progressive Web App (PWA)
+
+## 14.1 Objetivo
+
+O Tiny AI Lab deve ser disponibilizado como Progressive Web App (PWA), permitindo instalação em dispositivos compatíveis e melhorando a experiência de uso em desktop e mobile.
+
+A arquitetura continua sendo uma aplicação web; o PWA não substitui uma aplicação nativa.
+
+---
+
+# 14.2 manifest.json
+
+Arquivo:
+
+```
+public/manifest.json
+```
+
+Campos obrigatórios identificados:
+
+```json
+{
+  "name": "Tiny AI Lab",
+  "short_name": "Tiny AI Lab",
+  "theme_color": "#111111",
+  "background_color": "#111111"
+}
+```
+
+---
+
+## Campos Não Documentados
+
+Os seguintes campos não aparecem na documentação fornecida:
+
+- display;
+- orientation;
+- start_url;
+- icons;
+- scope.
+
+Todos permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 14.3 Service Worker
+
+Arquivo:
+
+```
+public/sw.js
+```
+
+---
+
+## Responsabilidades
+
+- cache de assets estáticos;
+- funcionamento offline parcial;
+- melhoria de performance.
+
+---
+
+## Estratégias de Cache
+
+A documentação identifica a existência de um Service Worker, porém não define estratégias específicas.
+
+Itens permanecem:
+
+**[A DEFINIR]**
+
+Exemplos de estratégias possíveis (não oficializadas):
+
+- Cache First;
+- Network First;
+- Stale While Revalidate.
+
+---
+
+## Recursos Elegíveis
+
+O Service Worker pode armazenar em cache:
+
+- CSS;
+- JavaScript;
+- fontes;
+- imagens;
+- assets compilados pelo Vite.
+
+Não há documentação autorizando cache de respostas dinâmicas da aplicação.
+
+---
+
+# 14.4 Atualizações
+
+A política de atualização do Service Worker não está documentada.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+# 14.5 Limitações iOS
+
+A documentação reconhece limitações inerentes ao Safari/iOS.
+
+Entre elas:
+
+- suporte parcial a notificações;
+- diferenças de comportamento do Service Worker;
+- instalação via "Adicionar à Tela de Início".
+
+Não há adaptações específicas documentadas para iOS.
+
+---
+
+# 14.6 Escopo
+
+O PWA melhora:
+
+- carregamento;
+- experiência de instalação;
+- cache local.
+
+Ele não altera:
+
+- autenticação;
+- autorização;
+- arquitetura do backend;
+- processamento dos pipelines.
+
+---
+
+> ⚠️ **Regra crítica:** O PWA é uma camada de experiência do usuário. Nenhuma regra de negócio, autenticação, autorização ou processamento de IA deve ser implementada no Service Worker.
+
+
+# 15. Variáveis de Ambiente
+
+## 15.1 Visão Geral
+
+Todas as credenciais e parâmetros sensíveis devem ser configurados exclusivamente através do arquivo `.env`.
+
+É proibido armazenar:
+
+- chaves de API;
+- segredos;
+- URLs privadas;
+- credenciais de banco;
+- tokens
+
+diretamente no código-fonte.
+
+---
+
+# 15.2 App
+
+| Variável | Finalidade |
+|----------|------------|
+| APP_NAME | Nome da aplicação |
+| APP_ENV | Ambiente |
+| APP_KEY | Chave de criptografia |
+| APP_DEBUG | Debug |
+| APP_URL | URL pública |
+| APP_TIMEZONE | Fuso horário |
+| APP_LOCALE | Idioma padrão |
+
+---
+
+# 15.3 Banco de Dados
+
+| Variável | Finalidade |
+|----------|------------|
+| DB_CONNECTION | Driver |
+| DB_HOST | Host |
+| DB_PORT | Porta |
+| DB_DATABASE | Banco |
+| DB_USERNAME | Usuário |
+| DB_PASSWORD | Senha |
+
+Banco oficial:
+
+```
+PostgreSQL
+```
+
+---
+
+# 15.4 Redis
+
+| Variável | Finalidade |
+|----------|------------|
+| REDIS_HOST | Host |
+| REDIS_PORT | Porta |
+| REDIS_PASSWORD | Senha |
+| REDIS_CLIENT | Cliente Redis |
+
+Redis é utilizado para:
+
+- filas;
+- Horizon;
+- cache.
+
+---
+
+# 15.5 Firebase
+
+| Variável | Finalidade |
+|----------|------------|
+| FIREBASE_PROJECT_ID | Projeto |
+| FIREBASE_CREDENTIALS | Credenciais |
+
+Demais parâmetros permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 15.6 n8n
+
+| Variável | Finalidade |
+|----------|------------|
+| N8N_URL | Endpoint |
+| N8N_SECRET | Segredo compartilhado |
+
+Caso outros parâmetros sejam necessários, permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# 15.7 Stripe
+
+| Variável | Finalidade |
+|----------|------------|
+| STRIPE_KEY | Public Key |
+| STRIPE_SECRET | Secret Key |
+| STRIPE_WEBHOOK_SECRET | Webhook |
+
+---
+
+# 15.8 Laravel Reverb
+
+| Variável | Finalidade |
+|----------|------------|
+| REVERB_APP_ID | Aplicação |
+| REVERB_APP_KEY | Chave |
+| REVERB_APP_SECRET | Segredo |
+| REVERB_HOST | Host |
+| REVERB_PORT | Porta |
+
+Demais parâmetros seguem a configuração oficial do Laravel Reverb.
+
+---
+
+# 15.9 Sentry
+
+| Variável | Finalidade |
+|----------|------------|
+| SENTRY_LARAVEL_DSN | Monitoramento |
+
+Configurações adicionais:
+
+**[A DEFINIR]**
+
+---
+
+# 15.10 Mail
+
+A documentação identifica utilização do sistema padrão do Laravel.
+
+Variáveis esperadas:
+
+| Variável | Finalidade |
+|----------|------------|
+| MAIL_MAILER | Driver |
+| MAIL_HOST | SMTP |
+| MAIL_PORT | Porta |
+| MAIL_USERNAME | Usuário |
+| MAIL_PASSWORD | Senha |
+| MAIL_FROM_ADDRESS | Remetente |
+| MAIL_FROM_NAME | Nome |
+
+O provedor SMTP permanece:
+
+**[A DEFINIR]**
+
+---
+
+# 15.11 IA
+
+As integrações de IA utilizam variáveis específicas.
+
+| Serviço | Variável |
+|----------|----------|
+| Claude | ANTHROPIC_API_KEY |
+| Gemini | GEMINI_API_KEY |
+| Perplexity | PERPLEXITY_API_KEY |
+| Apify | APIFY_TOKEN |
+
+---
+
+# 15.12 Produção
+
+Em ambiente de produção:
+
+- APP_DEBUG=false
+- HTTPS obrigatório
+- Credenciais nunca versionadas
+- `.env` exclusivo por ambiente
+
+---
+
+> ⚠️ **Regra crítica:** Nenhuma credencial deve ser armazenada em código, arquivos Blade, componentes Livewire, JavaScript, migrations ou seeders. Toda informação sensível deve ser carregada exclusivamente por variáveis de ambiente.
+
+---
+
+# 16. Decisões Arquiteturais (ADRs)
+
+## ADR-001 — Blade + Livewire vs Next.js
+
+### Decisão
+
+Utilizar Blade + Livewire.
+
+---
+
+### Alternativa
+
+Next.js + API Laravel.
+
+---
+
+### Motivo
+
+Os documentos do projeto demonstram uma arquitetura monolítica baseada em Laravel 11 com Livewire 3.
+
+Essa abordagem reduz complexidade operacional, elimina duplicação de autenticação, simplifica deploy e mantém uma única base de código.
+
+---
+
+# ADR-002 — Dois Droplets vs Um
+
+## Decisão
+
+Separar aplicação Laravel e n8n em dois Droplets distintos.
+
+---
+
+## Alternativa
+
+Hospedar todos os serviços em um único servidor.
+
+---
+
+## Motivo
+
+A separação:
+
+- reduz acoplamento;
+- melhora isolamento;
+- simplifica manutenção;
+- permite escalabilidade independente.
+
+---
+
+# ADR-003 — PostgreSQL vs MySQL
+
+## Decisão
+
+Utilizar PostgreSQL.
+
+---
+
+## Alternativa
+
+MySQL.
+
+---
+
+## Motivo
+
+Necessidade de:
+
+- JSONB;
+- índices GIN;
+- consultas avançadas.
+
+Especialmente para o armazenamento de resultados estruturados das execuções.
+
+---
+
+# ADR-004 — Firebase Auth vs Laravel Breeze
+
+## Decisão
+
+Firebase Authentication.
+
+---
+
+## Alternativa
+
+Laravel Breeze.
+
+---
+
+## Motivo
+
+Os documentos estabelecem autenticação baseada em Firebase, centralizando identidade e validação de tokens.
+
+---
+
+# ADR-005 — PWA vs Aplicação Nativa
+
+## Decisão
+
+Progressive Web App.
+
+---
+
+## Alternativa
+
+Aplicativos iOS/Android.
+
+---
+
+## Motivo
+
+Redução de custo de desenvolvimento, manutenção simplificada e instalação direta em dispositivos compatíveis.
+
+---
+
+# ADR-006 — Redis Local vs Upstash
+
+## Decisão
+
+Redis hospedado no Droplet da aplicação.
+
+---
+
+## Alternativa
+
+Redis gerenciado (Upstash).
+
+---
+
+## Motivo
+
+A infraestrutura definida utiliza Redis local integrado ao Laravel Horizon.
+
+Não há documentação prevendo serviço gerenciado.
+
+---
+
+# ADR-007 — n8n Self-hosted vs Make
+
+## Decisão
+
+n8n self-hosted.
+
+---
+
+## Alternativa
+
+Make.
+
+---
+
+## Motivo
+
+Maior controle operacional, flexibilidade de workflows, integração direta com a infraestrutura do projeto e ausência de dependência de SaaS externo.
+
+---
+
+# ADR-008 — Créditos vs Execuções Mensais
+
+## Decisão
+
+Modelo baseado em créditos.
+
+---
+
+## Alternativa
+
+Limite fixo de execuções por mês.
+
+---
+
+## Motivo
+
+Os pipelines possuem custos computacionais significativamente diferentes.
+
+Exemplos documentados:
+
+- Brand Research → 50 créditos;
+- Briefing → 5;
+- Image Generation → 7.
+
+O modelo por créditos permite precificação proporcional ao consumo real de recursos de IA.
+
+---
+
+# ADR-009 — JSONB vs Estrutura Relacional para Resultados
+
+## Decisão
+
+Persistir resultados em `JSONB`.
+
+---
+
+## Alternativa
+
+Criar dezenas de tabelas específicas para cada tipo de pipeline.
+
+---
+
+## Motivo
+
+Os pipelines produzem estruturas heterogêneas e potencialmente extensas.
+
+O uso de JSONB oferece:
+
+- flexibilidade;
+- versionamento simplificado;
+- consultas indexadas via GIN;
+- menor custo de evolução.
+
+---
+
+> ⚠️ **Regra crítica:** As ADRs documentadas representam decisões arquiteturais consolidadas do projeto. Alterá-las exige revisão formal da arquitetura e atualização deste SAD; agentes de IA não devem substituí-las por preferência técnica própria.
+
+---
+
+# 17. Restrições e Regras Invioláveis (para Agentes de IA)
+
+As regras abaixo possuem caráter imperativo.
+
+Qualquer implementação que as viole deve ser considerada incorreta.
+
+---
+
+## Arquitetura
+
+**NUNCA** implemente regras de negócio em componentes Blade.
+
+**SEMPRE** mantenha a lógica de domínio em Models, Services, Jobs, Policies ou Middleware.
+
+---
+
+**NUNCA** execute pipelines durante a requisição HTTP.
+
+**SEMPRE** utilize filas Redis processadas pelo Laravel Horizon.
+
+---
+
+**NUNCA** permita que o n8n acesse PostgreSQL, Redis ou usuários.
+
+**SEMPRE** faça toda persistência exclusivamente pelo Laravel.
+
+---
+
+## Banco de Dados
+
+**NUNCA** carregue `executions.result` em listagens.
+
+**SEMPRE** utilize `select()` para excluir o campo `result` quando ele não for necessário.
+
+---
+
+**NUNCA** faça consultas sem escopo da Brand ativa.
+
+**SEMPRE** filtre por `project_id`.
+
+---
+
+**NUNCA** utilize `user_id` como único critério de isolamento.
+
+**SEMPRE** considere a Brand ativa como contexto da aplicação.
+
+---
+
+## Créditos
+
+**NUNCA** hardcode valores de créditos.
+
+**SEMPRE** consulte a tabela `plan_limits`, preferencialmente utilizando cache Redis.
+
+---
+
+**NUNCA** permita iniciar um pipeline sem saldo suficiente.
+
+**SEMPRE** valide `EnsureCreditBalance` antes da criação da `Execution`.
+
+---
+
+## Segurança
+
+**NUNCA** aceite callbacks sem validar `X-N8N-Secret`.
+
+**SEMPRE** utilize `hash_equals()` para comparação do segredo.
+
+---
+
+**NUNCA** exponha informações de outra Brand.
+
+**SEMPRE** utilize Policies para autorização.
+
+---
+
+**NUNCA** armazene segredos no código.
+
+**SEMPRE** utilize variáveis de ambiente.
+
+---
+
+## Broadcast
+
+**NUNCA** envie `executions.result` via WebSocket.
+
+**SEMPRE** transmita apenas metadados da execução.
+
+---
+
+**NUNCA** faça broadcast antes da persistência.
+
+**SEMPRE** realize a sequência:
+
+```text
+Persistência
+
+↓
+
+Commit
+
+↓
+
+Broadcast
+```
+
+---
+
+## Frontend
+
+**NUNCA** invente novas cores.
+
+**SEMPRE** utilize exclusivamente os tokens definidos na Seção 10.
+
+---
+
+**NUNCA** altere a ordem da navegação da Sidebar.
+
+**SEMPRE** preserve a estrutura documentada.
+
+---
+
+**NUNCA** substitua a fonte oficial.
+
+**SEMPRE** utilize **Inter**.
+
+---
+
+**NUNCA** inicialize a aplicação em modo claro.
+
+**SEMPRE** aplique a classe:
+
+```html
+<html class="dark">
+```
+
+como estado inicial.
+
+---
+
+**NUNCA** remova os IDs funcionais documentados.
+
+**SEMPRE** mantenha compatibilidade com os componentes Livewire e Alpine.js.
+
+---
+
+## Multi-Brand
+
+**NUNCA** retorne dados pertencentes a outra Brand.
+
+**SEMPRE** utilize o `project_id` da Brand ativa em consultas, Jobs, Policies e componentes.
+
+---
+
+## Infraestrutura
+
+**NUNCA** comunique os Droplets pela rede pública.
+
+**SEMPRE** utilize a VPC privada.
+
+---
+
+**NUNCA** desative SSL.
+
+**SEMPRE** utilize Cloudflare como camada de proteção e gerenciamento DNS.
+
+---
+
+## Evolução do Sistema
+
+**NUNCA** substitua decisões arquiteturais documentadas sem ADR.
+
+**SEMPRE** registre novas decisões arquiteturais antes de alterar componentes estruturais.
+
+---
+
+> ⚠️ **Regra crítica:** Este Software Architecture Document é a fonte única de verdade para agentes de IA responsáveis pela implementação do Tiny AI Lab. Quando uma informação não estiver explicitamente definida neste documento, a implementação deve utilizar o marcador **[A DEFINIR]** como indicação de lacuna arquitetural, em vez de inferir ou inventar comportamentos.
+
+
+# APÊNDICES
+
+---
+
+# Apêndice A — Convenções Gerais de Desenvolvimento
+
+## Objetivo
+
+Este apêndice estabelece regras de implementação destinadas aos agentes de IA responsáveis pela geração de código. Seu objetivo é garantir uniformidade arquitetural, previsibilidade e manutenção do projeto.
+
+Estas convenções complementam as regras definidas nas seções anteriores e possuem caráter normativo.
+
+---
+
+## A.1 Convenções de Nomenclatura
+
+### Models
+
+Sempre utilizar nomes no singular.
+
+Exemplos:
+
+```
+User
+
+Project
+
+Execution
+
+VideoReference
+
+PlanLimit
+```
+
+---
+
+### Controllers
+
+Sufixo obrigatório:
+
+```
+Controller
+```
+
+Exemplo:
+
+```
+ExecutionController
+```
+
+---
+
+### Livewire
+
+Nome igual ao domínio da tela.
+
+Exemplo:
+
+```
+Dashboard
+
+BrandCore
+
+Sidebar
+
+Header
+
+LogoutModal
+
+BrandSwitcher
+```
+
+---
+
+### Jobs
+
+Sempre utilizar verbo no infinitivo ou ação explícita.
+
+Exemplos:
+
+```
+ExecutePipelineJob
+
+UpdateViralReferencesJob
+
+SendNotificationJob
+```
+
+---
+
+### Policies
+
+```
+ExecutionPolicy
+
+ProjectPolicy
+```
+
+---
+
+### Events
+
+Sempre no passado.
+
+```
+ExecutionUpdated
+
+ExecutionFailed
+```
+
+---
+
+### Middleware
+
+Sempre iniciar com verbo.
+
+```
+VerifyFirebaseToken
+
+CheckSubscription
+
+EnsureCreditBalance
+```
+
+---
+
+## A.2 Organização da Lógica
+
+Cada camada possui responsabilidade única.
+
+| Camada | Responsabilidade |
+|---------|------------------|
+| Blade | HTML |
+| Alpine | Microinterações |
+| Livewire | Estado da interface |
+| Controller | Orquestração HTTP |
+| Request | Validação |
+| Policy | Autorização |
+| Job | Processamento assíncrono |
+| Service | Regras reutilizáveis |
+| Model | Persistência |
+
+---
+
+## A.3 Form Requests
+
+Toda entrada HTTP deve utilizar Form Requests quando aplicável.
+
+Validação nunca deve permanecer dentro de Controllers.
+
+---
+
+## A.4 Services
+
+A documentação não define uma camada formal de Services.
+
+Caso esta camada seja introduzida durante a implementação, sua estrutura permanece:
+
+**[A DEFINIR]**
+
+---
+
+## A.5 Exceptions
+
+Exceções customizadas permanecem **[A DEFINIR]**.
+
+Nunca utilizar mensagens técnicas diretamente para o usuário.
+
+---
+
+# Apêndice B — Fluxo Operacional Completo
+
+Toda operação da plataforma deve obedecer ao seguinte fluxo arquitetural.
+
+```text
+Usuário
+
+↓
+
+Blade
+
+↓
+
+Livewire
+
+↓
+
+Controller
+
+↓
+
+Middleware
+
+↓
+
+Policy
+
+↓
+
+Form Request
+
+↓
+
+Execution criada
+
+↓
+
+Dispatch Job
+
+↓
+
+Redis
+
+↓
+
+Laravel Horizon
+
+↓
+
+HTTP
+
+↓
+
+n8n
+
+↓
+
+APIs Externas
+
+↓
+
+Callback
+
+↓
+
+Laravel
+
+↓
+
+Persistência
+
+↓
+
+Broadcast
+
+↓
+
+Livewire
+
+↓
+
+Atualização da Interface
+```
+
+Qualquer implementação que ignore uma dessas camadas deve ser considerada incompatível com esta arquitetura.
+
+---
+
+# Apêndice C — Estratégia de Cache
+
+## Objetivo
+
+Reduzir consultas repetitivas ao banco de dados e minimizar latência.
+
+---
+
+## Itens Elegíveis para Cache
+
+### Plan Limits
+
+Tabela:
+
+```
+plan_limits
+```
+
+É o principal candidato a cache.
+
+---
+
+### Configurações
+
+Caso existam configurações globais do sistema.
+
+Estado:
+
+**[A DEFINIR]**
+
+---
+
+### Brand Ativa
+
+O mecanismo de cache da Brand ativa não está documentado.
+
+Permanece:
+
+**[A DEFINIR]**
+
+---
+
+## Itens que NÃO Devem Ser Cacheados
+
+Nunca armazenar em cache:
+
+- Execution.result;
+- dados de autenticação;
+- saldo de créditos quando houver risco de inconsistência;
+- objetos mutáveis durante execução.
+
+---
+
+## Invalidação
+
+A estratégia oficial de invalidação permanece:
+
+**[A DEFINIR]**
+
+---
+
+# Apêndice D — Observabilidade
+
+## Logs
+
+Toda exceção deve ser registrada.
+
+Categorias esperadas:
+
+- autenticação;
+- filas;
+- callbacks;
+- integração;
+- billing;
+- exceções inesperadas.
+
+---
+
+## Horizon
+
+Monitorar continuamente:
+
+- filas;
+- Jobs falhos;
+- Jobs lentos;
+- throughput;
+- Workers.
+
+---
+
+## Sentry
+
+Registrar:
+
+- Exceptions;
+- Stack Trace;
+- Ambiente;
+- URL;
+- Usuário autenticado (quando disponível).
+
+Nunca registrar:
+
+- segredos;
+- tokens;
+- credenciais.
+
+---
+
+## UptimeRobot
+
+Monitorar:
+
+- disponibilidade HTTP;
+- SSL;
+- tempo de resposta.
+
+---
+
+## Correlation ID
+
+Sempre que possível, utilizar o `execution_id` como identificador de correlação entre:
+
+- logs;
+- callbacks;
+- eventos;
+- broadcasts;
+- filas.
+
+Isso facilita auditoria ponta a ponta.
+
+---
+
+# Apêndice E — Padrões Livewire
+
+## Componentes
+
+Cada componente representa uma única responsabilidade.
+
+Não criar componentes monolíticos.
+
+---
+
+## Loading
+
+Sempre utilizar estados de carregamento para operações assíncronas.
+
+---
+
+## Validação
+
+Toda validação deve reutilizar Rules do Laravel.
+
+Nunca duplicar regras entre frontend e backend.
+
+---
+
+## Polling
+
+Polling deve existir apenas como mecanismo de fallback quando Reverb estiver indisponível.
+
+---
+
+## Estado
+
+Livewire deve manter apenas estado de apresentação.
+
+Nunca persistir regras de negócio no componente.
+
+---
+
+# Apêndice F — Fluxo de Deploy
+
+A documentação não descreve pipeline CI/CD.
+
+Permanece:
+
+**[A DEFINIR]**
+
+Fluxo esperado de produção:
+
+```text
+Deploy
+
+↓
+
+Migrations
+
+↓
+
+Cache Config
+
+↓
+
+Cache Routes
+
+↓
+
+Restart Horizon
+
+↓
+
+Restart Reverb
+
+↓
+
+Health Check
+```
+
+---
+
+# Apêndice G — Ordem Recomendada de Implementação
+
+Para reduzir retrabalho entre agentes de IA, recomenda-se a seguinte sequência de desenvolvimento.
+
+1. Configuração Laravel.
+2. Infraestrutura.
+3. Banco de Dados.
+4. Models.
+5. Policies.
+6. Middleware.
+7. Firebase Auth.
+8. Cashier.
+9. Redis.
+10. Horizon.
+11. Reverb.
+12. Layout Base.
+13. Sidebar.
+14. Header.
+15. Brand Switcher.
+16. Dashboard.
+17. Pipelines.
+18. n8n.
+19. Broadcast.
+20. PWA.
+
+Cada etapa depende da conclusão da anterior.
+
+---
+
+# Apêndice H — Checklist para Agentes de IA
+
+Antes de implementar qualquer funcionalidade, verificar:
+
+- [ ] Existe Migration?
+- [ ] Existe Model?
+- [ ] Existe Policy?
+- [ ] Existe Middleware adequado?
+- [ ] A query está escopada pela Brand ativa?
+- [ ] O consumo de créditos consulta `plan_limits`?
+- [ ] A execução utiliza fila?
+- [ ] Existe tratamento de falha?
+- [ ] Existe broadcast quando necessário?
+- [ ] O componente respeita o Design System?
+- [ ] As cores utilizam apenas os tokens oficiais?
+- [ ] A fonte Inter está sendo utilizada?
+- [ ] Não existem credenciais hardcoded?
+- [ ] O callback valida `X-N8N-Secret`?
+- [ ] Nenhum `result` JSONB é carregado desnecessariamente?
+- [ ] O código respeita as ADRs documentadas?
+
+Nenhum Pull Request ou geração automática de código deve ser considerado concluído sem atender integralmente a este checklist.
+
+---
+
+# Apêndice I — Critérios de Qualidade Arquitetural
+
+Uma implementação será considerada aderente ao Tiny AI Lab somente quando cumprir simultaneamente os seguintes critérios:
+
+- Conformidade com todas as ADRs documentadas;
+- Isolamento completo entre Brands;
+- Processamento assíncrono via Horizon para todas as operações de IA;
+- Comunicação exclusiva Laravel ↔ n8n por HTTP autenticado;
+- Persistência centralizada no Laravel;
+- Uso exclusivo do Design System oficial;
+- Ausência de valores hardcoded para créditos, planos e limites;
+- Observabilidade adequada (logs, Horizon e Sentry);
+- Compatibilidade com o fluxo de autenticação Firebase;
+- Compatibilidade com o modelo de créditos e assinaturas via Stripe/Cashier.
+
+---
+
+# Apêndice J — Declaração de Fonte de Verdade
+
+Este Software Architecture Document constitui a especificação arquitetural oficial do projeto Tiny AI Lab.
+
+Toda implementação gerada por agentes de IA deve ser considerada derivada deste documento.
+
+Na ausência de uma especificação explícita, o agente deve utilizar o marcador **[A DEFINIR]** como indicação de lacuna arquitetural, abstendo-se de inferir comportamentos, estruturas de dados, integrações ou regras de negócio não documentadas.
+
+Qualquer alteração estrutural relevante na arquitetura deve ser refletida neste documento antes da implementação correspondente, preservando-o como a fonte única de verdade para futuras sessões de desenvolvimento.
+
+# Apêndice K — Convenções de Banco de Dados
+
+## Objetivo
+
+Este apêndice estabelece as convenções oficiais de modelagem de dados, migrations e persistência utilizadas pelo Tiny AI Lab.
+
+Todas as migrations futuras devem seguir estas regras. Agentes de IA não devem criar novas convenções.
+
+---
+
+# K.1 Convenções de Nomenclatura de Tabelas
+
+## Regra Geral
+
+Toda tabela deve ser nomeada:
+
+- no plural;
+- em `snake_case`;
+- utilizando o nome físico do domínio persistido.
+
+### Correto
+
+| Entidade | Tabela |
+|----------|---------|
+| User | `users` |
+| Project | `projects` |
+| Execution | `executions` |
+| VideoReference | `video_references` |
+| PlanLimit | `plan_limits` |
+
+### Incorreto
+
+| Incorreto | Motivo |
+|-----------|--------|
+| `user` | singular |
+| `Project` | PascalCase |
+| `VideoReferences` | Camel/Pascal |
+| `Brand` | o nome físico adotado é `projects` |
+
+---
+
+## Tabelas Pivot
+
+Sempre utilizar:
+
+```
+{modelo_singular}_{modelo_singular}
+```
+
+em ordem alfabética.
+
+Exemplo:
+
+```text
+project_user
+```
+
+Nunca:
+
+```text
+user_projects
+
+projects_users
+
+brand_user
+```
+
+Embora o conceito de negócio seja **Brand**, a entidade persistida é `projects`.
+
+Portanto:
+
+```text
+project_user
+```
+
+é a única nomenclatura permitida.
+
+---
+
+# K.2 Convenções de Colunas
+
+## snake_case obrigatório
+
+Todas as colunas seguem `snake_case`.
+
+### Correto
+
+```
+credits_balance
+
+created_at
+
+completed_at
+
+project_id
+```
+
+### Incorreto
+
+```
+creditsBalance
+
+ProjectID
+
+CompletedAt
+```
+
+---
+
+## Chaves Estrangeiras
+
+Sempre utilizar:
+
+```
+{tabela_singular}_id
+```
+
+Exemplos:
+
+```
+project_id
+
+user_id
+
+execution_id
+```
+
+Nunca utilizar nomes derivados apenas do conceito de domínio.
+
+Exemplo incorreto:
+
+```
+brand_id
+```
+
+A tabela física chama-se:
+
+```
+projects
+```
+
+Logo:
+
+```
+project_id
+```
+
+é obrigatório.
+
+---
+
+## Booleanos
+
+Sempre utilizar prefixo:
+
+```
+is_
+
+has_
+```
+
+Exemplos:
+
+```
+is_active
+
+is_default
+
+has_completed_setup
+```
+
+Nunca:
+
+```
+active
+
+completed
+```
+
+---
+
+## Datas de Domínio
+
+Sempre utilizar sufixo:
+
+```
+_at
+```
+
+Exemplos:
+
+```
+completed_at
+
+failed_at
+
+last_credit_reset_at
+```
+
+Nunca:
+
+```
+completedDate
+
+failure_time
+```
+
+---
+
+## JSONB
+
+Campos JSON nunca devem indicar o tipo no nome.
+
+### Correto
+
+```
+config
+
+result
+
+metadata
+```
+
+### Incorreto
+
+```
+config_json
+
+result_json
+
+metadata_object
+```
+
+---
+
+# K.3 Chaves Primárias
+
+## Padrão Oficial
+
+O projeto utiliza:
+
+```php
+$table->id();
+```
+
+Tipo efetivo:
+
+```
+bigint unsigned auto increment
+```
+
+Esta decisão é consistente com a modelagem existente, incluindo a tabela `users`.
+
+---
+
+## UUID
+
+UUID **não** é utilizado como chave primária das tabelas de domínio.
+
+O uso de UUID permanece **[A DEFINIR]** para identificadores públicos, integrações externas ou compartilhamento de URLs.
+
+Até que uma ADR específica seja criada, utilize exclusivamente `bigint` como chave primária.
+
+---
+
+# K.4 Chaves Estrangeiras
+
+Toda Foreign Key deve ser declarada explicitamente.
+
+Sempre utilizar:
+
+```php
+$table
+    ->foreignId('project_id')
+    ->constrained()
+    ->cascadeOnDelete();
+```
+
+Nunca criar FK manualmente com `unsignedBigInteger()` sem constraint.
+
+---
+
+## Política de onDelete
+
+| Relacionamento | Regra |
+|----------------|-------|
+| Dados pertencentes exclusivamente ao pai | `cascadeOnDelete()` |
+| Dados de configuração compartilhados | `restrictOnDelete()` |
+| Relacionamentos opcionais | `nullOnDelete()` |
+
+---
+
+### Exemplo — executions → projects
+
+```php
+$table
+    ->foreignId('project_id')
+    ->constrained()
+    ->cascadeOnDelete();
+```
+
+---
+
+### Exemplo — projects → users
+
+```php
+$table
+    ->foreignId('user_id')
+    ->constrained()
+    ->cascadeOnDelete();
+```
+
+---
+
+### Exemplo Opcional
+
+```php
+$table
+    ->foreignId('approved_by')
+    ->nullable()
+    ->constrained('users')
+    ->nullOnDelete();
+```
+
+---
+
+# K.5 Soft Deletes
+
+## Utilizar SoftDeletes
+
+Tabelas de domínio principal:
+
+- users
+- projects
+- executions
+
+---
+
+## Não utilizar SoftDeletes
+
+Tabelas de configuração:
+
+- plan_limits
+
+Tabelas técnicas:
+
+- jobs
+- failed_jobs
+- cache
+- cache_locks
+- notifications (seguir implementação padrão do Laravel, salvo decisão futura)
+
+---
+
+## Policies
+
+Policies devem considerar apenas registros ativos.
+
+Nunca autorizar acesso a registros soft deleted sem fluxo administrativo específico.
+
+Fluxos de restauração permanecem **[A DEFINIR]**.
+
+---
+
+# K.6 Índices
+
+## Regra Geral
+
+Toda Foreign Key possui índice.
+
+Mesmo quando criado implicitamente, a migration deve tornar essa intenção explícita quando necessário.
+
+---
+
+## Índices Simples
+
+Utilizar para colunas frequentemente usadas em:
+
+- where
+- orderBy
+- join
+
+Exemplos:
+
+```
+status
+
+project_id
+
+user_id
+
+created_at
+```
+
+---
+
+## Índices Compostos
+
+Utilizar quando as consultas combinarem colunas recorrentes.
+
+Exemplo:
+
+```sql
+(project_id, status)
+
+(project_id, created_at)
+```
+
+---
+
+## Índices Parciais
+
+Quando houver benefício comprovado em PostgreSQL.
+
+Exemplo:
+
+```sql
+WHERE status = 'pending'
+```
+
+Sua utilização depende de necessidade observada em produção.
+
+Estado atual:
+
+**[A DEFINIR]**
+
+---
+
+## Índices GIN
+
+Obrigatórios para:
+
+```
+executions.config
+
+executions.result
+```
+
+Utilizar:
+
+```sql
+USING GIN
+```
+
+Sempre que consultas internas explorarem atributos desses documentos.
+
+---
+
+# K.7 Convenções de Migrations
+
+## Arquivos
+
+Criar tabela:
+
+```
+create_projects_table
+```
+
+Adicionar coluna:
+
+```
+add_status_to_executions_table
+```
+
+Modificar coluna:
+
+```
+modify_result_in_executions_table
+```
+
+---
+
+## Produção
+
+Nunca editar migrations já executadas.
+
+Sempre criar nova migration incremental.
+
+---
+
+## Ordem
+
+1. tabelas sem FK;
+2. tabelas dependentes;
+3. pivots.
+
+---
+
+## Regras
+
+Nunca:
+
+- inserir lógica de domínio;
+- consumir APIs;
+- executar cálculos;
+- popular dados de negócio.
+
+Seeds pertencem exclusivamente aos Seeders.
+
+---
+
+# K.8 Estratégia JSONB
+
+Sempre utilizar PostgreSQL nativo.
+
+```php
+$table->jsonb('config');
+
+$table->jsonb('result');
+```
+
+Nunca:
+
+```php
+$table->json('config');
+```
+
+---
+
+## Casts Obrigatórios
+
+```php
+protected function casts(): array
+{
+    return [
+
+        'config' => 'array',
+
+        'result' => 'array',
+
+    ];
+}
+```
+
+---
+
+## Queries
+
+Nunca depender rigidamente da estrutura interna do JSON para regras críticas do domínio.
+
+O JSONB é considerado um contrato evolutivo.
+
+Mudanças estruturais internas não exigem migrations, mas devem ser documentadas neste SAD.
+
+---
+
+# K.9 Convenções de Seeding
+
+A ordem do `DatabaseSeeder` deve respeitar dependências entre entidades.
+
+Exemplo:
+
+```php
+public function run(): void
+{
+    $this->call([
+
+        PlanLimitSeeder::class,
+
+        [A DEFINIR],
+
+    ]);
+}
+```
+
+---
+
+## PlanLimitSeeder
+
+Obrigatório em qualquer ambiente.
+
+Sem ele, o sistema não consegue calcular consumo de créditos.
+
+---
+
+## DevelopmentSeeder
+
+Executar apenas em ambiente local.
+
+```php
+if (app()->environment('local')) {
+
+    $this->call(DevelopmentSeeder::class);
+
+}
+```
+
+---
+
+## Produção
+
+Nunca inserir:
+
+- usuários reais;
+- marcas reais;
+- execuções reais;
+- dados sensíveis.
+
+---
+
+# K.10 Exemplo Completo — Migration da Tabela `executions`
+
+```php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('executions', function (Blueprint $table) {
+
+            $table->id();
+
+            $table->foreignId('project_id')
+                ->constrained()
+                ->cascadeOnDelete();
+
+            $table->string('pipeline_type');
+
+            $table->string('status')->index();
+
+            $table->jsonb('config');
+
+            $table->jsonb('result')->nullable();
+
+            $table->unsignedInteger('tokens_used')->default(0);
+
+            $table->unsignedInteger('credits_consumed');
+
+            $table->timestamp('completed_at')->nullable();
+
+            $table->timestamp('failed_at')->nullable();
+
+            $table->timestamps();
+
+            $table->softDeletes();
+
+            $table->index(['project_id', 'status']);
+
+            $table->index(['project_id', 'created_at']);
+        });
+
+        DB::statement(
+            'CREATE INDEX executions_config_gin
+             ON executions
+             USING GIN (config);'
+        );
+
+        DB::statement(
+            'CREATE INDEX executions_result_gin
+             ON executions
+             USING GIN (result);'
+        );
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('executions');
+    }
+};
+```
+
+---
+
+> ⚠️ **Regra crítica:** A modelagem do banco de dados é parte da arquitetura do Tiny AI Lab. Nunca introduza novas convenções de nomenclatura, tipos, índices ou relacionamentos sem atualizar este SAD e registrar uma ADR correspondente. Toda migration futura deve ser consistente com as convenções definidas neste apêndice.
+
+
+# Apêndice L — Convenções de Código PHP/Laravel
+
+## Objetivo
+
+Este apêndice define o padrão oficial de organização do código PHP do Tiny AI Lab.
+
+Todos os agentes de IA devem seguir estas convenções rigorosamente. O objetivo é garantir que código gerado em sessões diferentes possua a mesma estrutura arquitetural, estilo e organização.
+
+---
+
+# L.1 Namespaces
+
+## Estrutura Oficial
+
+A estrutura de namespaces do projeto deve seguir a organização abaixo.
+
+```text
+App
+├── Actions/
+├── Broadcasting/
+├── Console/
+├── Events/
+├── Exceptions/
+├── Http/
+│   ├── Controllers/
+│   │   ├── Web/
+│   │   └── Api/
+│   ├── Middleware/
+│   └── Requests/
+├── Jobs/
+├── Livewire/
+│   ├── BrandAssets/
+│   ├── Marketing/
+│   └── Components/
+├── Models/
+├── Policies/
+├── Providers/
+├── Services/
+├── Notifications/
+└── Support/
+```
+
+---
+
+## Controllers
+
+O Tiny AI Lab é um monólito Blade + Livewire.
+
+Portanto:
+
+```text
+App\Http\Controllers\Web\
+```
+
+é o namespace padrão.
+
+Utilize:
+
+```text
+App\Http\Controllers\Api\
+```
+
+apenas para endpoints externos, callbacks, webhooks ou integrações que não pertençam ao fluxo Livewire.
+
+Exemplos:
+
+```text
+Web
+
+DashboardController
+
+ExecutionController
+
+ProjectController
+```
+
+```text
+Api
+
+N8nCallbackController
+
+StripeWebhookController
+```
+
+---
+
+## Livewire
+
+Organize componentes por domínio.
+
+```text
+App\Livewire
+
+Dashboard
+
+Sidebar
+
+Header
+
+LogoutModal
+
+BrandSwitcher
+```
+
+Subpastas:
+
+```text
+App\Livewire\BrandAssets
+
+VisualIdentity
+
+Characters
+
+Products
+```
+
+```text
+App\Livewire\Marketing
+
+MarketResearch
+
+BuyerPersonas
+
+SocialStrategy
+```
+
+Nunca criar dezenas de componentes na raiz quando existir um domínio claro.
+
+---
+
+## Services
+
+Os Services devem ser organizados em estrutura plana até que o crescimento do projeto justifique modularização.
+
+```text
+App\Services
+
+PipelineService
+
+CreditService
+
+BrandService
+
+ExecutionService
+
+NotificationService
+```
+
+Caso futuramente existam mais de aproximadamente 15 Services de um mesmo domínio, a organização por subpastas poderá ser revisada mediante ADR.
+
+---
+
+## Actions
+
+O SAD atual não adota uma camada dedicada de Actions.
+
+Toda lógica reutilizável deve permanecer em:
+
+```text
+App\Services
+```
+
+Portanto:
+
+```text
+App\Actions
+```
+
+permanece **não utilizado**.
+
+Sua adoção exige nova ADR.
+
+---
+
+# L.2 Controllers
+
+## Responsabilidade
+
+Controllers apenas orquestram a requisição HTTP.
+
+Nunca concentram regras de negócio.
+
+Fluxo obrigatório:
+
+```text
+Controller
+
+↓
+
+Form Request
+
+↓
+
+Policy
+
+↓
+
+Service
+
+↓
+
+Job
+
+↓
+
+Response
+```
+
+---
+
+## Limite de Complexidade
+
+Cada método público deve possuir preferencialmente até **15 linhas úteis**.
+
+Quando ultrapassar esse limite devido à lógica de domínio, extraia para um Service.
+
+---
+
+## Acesso ao Eloquent
+
+Nunca realizar consultas complexas diretamente no Controller.
+
+### Correto
+
+```php
+$project = $this->brandService->findForUser(
+    auth()->user(),
+    $id
+);
+```
+
+ou
+
+```php
+$execution = Execution::query()
+    ->forBrand($project->id)
+    ->findOrFail($id);
+```
+
+---
+
+### Incorreto
+
+```php
+Execution::where(...)
+    ->join(...)
+    ->orderBy(...)
+    ->get();
+```
+
+---
+
+## Padrões de Retorno
+
+| Cenário | Retorno |
+|----------|----------|
+| Página Blade | `view()` |
+| Pós-formulário | `redirect()` |
+| Callback/API | `response()->json()` |
+| Livewire | retorno implícito do componente |
+
+---
+
+## Exemplo Correto
+
+```php
+public function store(
+    StoreBriefingRequest $request,
+    PipelineService $pipelineService
+): RedirectResponse {
+
+    $execution = $pipelineService->dispatchBriefing(
+        $request->validated(),
+        auth()->user()
+    );
+
+    return redirect()
+        ->route('executions.show', $execution);
+}
+```
+
+---
+
+## Exemplo Incorreto
+
+```php
+public function store(Request $request)
+{
+    $request->validate([...]);
+
+    $credits = auth()->user()->credits_balance;
+
+    if ($credits < 5) {
+
+        abort(403);
+
+    }
+
+    $execution = Execution::create(...);
+
+    Http::post(...);
+
+    return view(...);
+}
+```
+
+Este exemplo viola múltiplas regras do projeto:
+
+- validação no Controller;
+- regra de créditos no Controller;
+- chamada ao n8n síncrona;
+- persistência sem Service.
+
+---
+
+# L.3 Services
+
+## Quando Criar
+
+Crie um Service quando:
+
+- a lógica for reutilizada;
+- envolver múltiplos Models;
+- representar um caso de uso do domínio.
+
+Não utilize Service apenas para encapsular uma linha de código.
+
+---
+
+## Quando NÃO Criar
+
+Lógica simples pertencente exclusivamente ao Model deve permanecer no próprio Model.
+
+Processamento assíncrono deve permanecer em Jobs.
+
+---
+
+## Nomenclatura
+
+Sempre utilizar o sufixo:
+
+```
+Service
+```
+
+Exemplos:
+
+```
+PipelineService
+
+CreditService
+
+BrandService
+
+ExecutionService
+```
+
+---
+
+## Injeção
+
+Sempre utilizar Dependency Injection.
+
+```php
+public function __construct(
+
+    private readonly CreditService $credits
+
+) {}
+```
+
+Nunca:
+
+```php
+$service = new CreditService();
+```
+
+---
+
+## Singleton
+
+Services stateless e amplamente reutilizados podem ser registrados como singleton no `AppServiceProvider`.
+
+Exemplo:
+
+```php
+$this->app->singleton(
+    CreditService::class
+);
+```
+
+A decisão deve considerar ausência de estado interno.
+
+---
+
+## Exemplo — CreditService
+
+```php
+class CreditService
+{
+    public function canExecute(
+        User $user,
+        string $action
+    ): bool
+    {
+        $cost = $this->cost($action);
+
+        return $user->credits_balance >= $cost;
+    }
+
+    public function deduct(
+        User $user,
+        string $action
+    ): void
+    {
+        $cost = $this->cost($action);
+
+        $user->decrement(
+            'credits_balance',
+            $cost
+        );
+    }
+
+    public function getRemainingBalance(
+        User $user
+    ): int
+    {
+        return $user->credits_balance;
+    }
+
+    protected function cost(
+        string $action
+    ): int
+    {
+        return Cache::remember(
+            "plan_limits:{$action}",
+            now()->addMinutes(60),
+            fn () => PlanLimit::where('action', $action)
+                ->value('credits')
+        );
+    }
+}
+```
+
+---
+
+# L.4 Form Requests
+
+Toda entrada HTTP deve utilizar Form Request.
+
+Nunca valide diretamente no Controller.
+
+---
+
+## Nomenclatura
+
+```
+StoreBriefingRequest
+
+UpdateProjectRequest
+
+StoreExecutionRequest
+```
+
+Formato:
+
+```
+{Verbo}{Recurso}Request
+```
+
+---
+
+## authorize()
+
+Nunca retornar simplesmente:
+
+```php
+return true;
+```
+
+Utilize Policy.
+
+---
+
+## Exemplo
+
+```php
+public function authorize(): bool
+{
+    return $this->user()
+        ->can('create', Execution::class);
+}
+```
+
+---
+
+## messages()
+
+As mensagens internas permanecem em português.
+
+```php
+public function messages(): array
+{
+    return [
+
+        'title.required' => 'Informe um título.',
+
+        'description.required' => 'Informe a descrição.',
+
+    ];
+}
+```
+
+---
+
+## rules()
+
+```php
+public function rules(): array
+{
+    return [
+
+        'title' => ['required', 'string', 'max:255'],
+
+        'description' => ['required', 'string'],
+
+    ];
+}
+```
+
+---
+
+# L.5 API Resources
+
+Utilize Resources sempre que houver serialização explícita.
+
+Nunca exponha Models diretamente em endpoints públicos.
+
+---
+
+## Collections
+
+Nunca incluir:
+
+```
+result
+```
+
+na coleção de execuções.
+
+Exemplo:
+
+```php
+ExecutionCollection
+```
+
+Campos:
+
+```text
+id
+
+status
+
+pipeline_type
+
+credits_consumed
+
+created_at
+```
+
+---
+
+## Resource Individual
+
+```php
+ExecutionResource
+```
+
+Pode incluir:
+
+```
+result
+```
+
+quando necessário.
+
+---
+
+# L.6 Exceptions Customizadas
+
+Localização:
+
+```text
+app/Exceptions
+```
+
+---
+
+## Nomenclatura
+
+Sempre terminar com:
+
+```
+Exception
+```
+
+Exemplos:
+
+```
+InsufficientCreditsException
+
+InvalidN8nSecretException
+
+BrandNotFoundException
+```
+
+---
+
+## Handler
+
+Toda Exception customizada deve possuir renderização consistente.
+
+| Exception | HTTP |
+|-----------|------|
+| InsufficientCreditsException | 402 |
+| InvalidN8nSecretException | 401 |
+| BrandNotFoundException | 404 |
+
+Nunca expor stack trace em produção.
+
+---
+
+# L.7 Models
+
+Todo Model deve declarar explicitamente:
+
+- `$fillable`
+- `casts()`
+- relacionamentos
+- scopes
+
+Nunca utilizar:
+
+```php
+protected $guarded = [];
+```
+
+---
+
+## Scopes
+
+Prefixo:
+
+```
+scopeForBrand()
+
+scopeCompleted()
+
+scopeThisMonth()
+```
+
+---
+
+## Accessors
+
+Utilizar sintaxe moderna.
+
+```php
+public function status(): Attribute
+{
+    return Attribute::make(
+        get: fn ($value) => strtoupper($value)
+    );
+}
+```
+
+---
+
+## Exemplo — Execution
+
+```php
+class Execution extends Model
+{
+    use SoftDeletes;
+
+    protected $fillable = [
+        'project_id',
+        'pipeline_type',
+        'status',
+        'config',
+        'result',
+        'credits_consumed',
+        'tokens_used',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'config' => 'array',
+            'result' => 'array',
+            'completed_at' => 'datetime',
+            'failed_at' => 'datetime',
+        ];
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    public function scopeForBrand(
+        Builder $query,
+        int $projectId
+    ): Builder {
+        return $query->where(
+            'project_id',
+            $projectId
+        );
+    }
+}
+```
+
+---
+
+# L.8 Jobs
+
+Todos os Jobs devem implementar:
+
+```php
+ShouldQueue
+```
+
+---
+
+## Valores Padrão
+
+```php
+public int $tries = 3;
+
+public array $backoff = [60, 300, 900];
+```
+
+Timeouts recomendados:
+
+| Tipo | Timeout |
+|-------|---------|
+| Dispatch para n8n | 30 s |
+| Notificações | 60 s |
+
+---
+
+## handle()
+
+O método deve permanecer enxuto.
+
+Toda lógica complexa pertence a Services.
+
+---
+
+## failed()
+
+Sempre:
+
+1. atualizar Execution;
+2. registrar no Sentry;
+3. disparar evento;
+4. registrar log.
+
+---
+
+## IDs
+
+Jobs recebem IDs.
+
+Nunca Models completos quando puderem ser reconsultados.
+
+---
+
+# L.9 Eventos e Listeners
+
+## Eventos
+
+Sempre nomeados no passado.
+
+```
+ExecutionUpdated
+
+ExecutionFailed
+```
+
+---
+
+## Listeners
+
+Sempre nomeados por ação.
+
+```
+NotifyUserOfCompletion
+
+DeductCreditsOnCompletion
+```
+
+---
+
+## Registro
+
+Todos os eventos devem ser registrados em:
+
+```text
+EventServiceProvider
+```
+
+---
+
+## Broadcast
+
+Eventos de broadcast implementam:
+
+```php
+ShouldBroadcast
+```
+
+---
+
+## Listeners Assíncronos
+
+Sempre implementar:
+
+```php
+ShouldQueue
+```
+
+quando executarem qualquer operação potencialmente lenta.
+
+---
+
+> ⚠️ **Regra crítica:** Controllers apenas coordenam o fluxo HTTP. Toda regra de negócio pertence ao domínio (Services, Models, Policies e Jobs). Se um Controller começa a decidir créditos, consultar APIs externas, montar queries complexas ou alterar múltiplas entidades, a implementação está em desacordo com a arquitetura oficial do Tiny AI Lab.
+
+
+# Apêndice M — Padrões Livewire 3
+
+## Objetivo
+
+Este apêndice define os padrões oficiais para desenvolvimento de componentes Livewire 3 no Tiny AI Lab.
+
+Como o projeto utiliza **Laravel 11 + Blade + Livewire 3** como arquitetura principal de frontend, todos os componentes devem seguir exatamente estas convenções.
+
+O objetivo é garantir previsibilidade, evitar duplicação de lógica e manter a separação entre apresentação e domínio.
+
+---
+
+# M.1 Estrutura de um Componente
+
+Todo componente Livewire deve possuir exatamente dois arquivos:
+
+```text
+Classe PHP
+
+app/Livewire/{Componente}.php
+```
+
+```text
+View Blade
+
+resources/views/livewire/{componente-kebab-case}.blade.php
+```
+
+Exemplo:
+
+```text
+app/Livewire/BrandSwitcher.php
+
+resources/views/livewire/brand-switcher.blade.php
+```
+
+Nunca colocar Blade dentro da classe.
+
+Nunca criar componentes inline.
+
+---
+
+## Organização por Domínio
+
+Quando houver diversos componentes relacionados, utilizar subpastas.
+
+Exemplo:
+
+```text
+app/Livewire
+
+BrandAssets/
+    VisualIdentity.php
+    Characters.php
+    Products.php
+
+Marketing/
+    MarketResearch.php
+    BuyerPersonas.php
+    SocialStrategy.php
+```
+
+A View acompanha a mesma estrutura.
+
+```text
+resources/views/livewire
+
+brand-assets/
+
+marketing/
+```
+
+---
+
+## Estado
+
+Toda propriedade pública representa estado do componente.
+
+Exemplo:
+
+```php
+public string $title = '';
+
+public string $description = '';
+
+public ?Execution $execution = null;
+```
+
+Nunca armazenar estado reativo em:
+
+- Session;
+- variáveis locais;
+- propriedades estáticas.
+
+---
+
+## Computed Properties
+
+Dados derivados devem utilizar:
+
+```php
+use Livewire\Attributes\Computed;
+```
+
+Exemplo:
+
+```php
+#[Computed]
+public function remainingCredits(): int
+{
+    return auth()->user()->credits_balance;
+}
+```
+
+Nunca recalcular manualmente no Blade.
+
+Nunca duplicar cálculos.
+
+---
+
+# M.2 wire:model — Quando Utilizar Cada Variante
+
+A escolha da variante de `wire:model` impacta diretamente desempenho e quantidade de requisições.
+
+Utilize sempre o modificador adequado ao contexto.
+
+---
+
+## wire:model
+
+Atualização imediata.
+
+Utilize apenas quando o componente precisar reagir durante a digitação.
+
+Exemplos:
+
+- busca instantânea;
+- contador de caracteres;
+- validação imediata.
+
+```blade
+<input
+    type="text"
+    wire:model="search"
+/>
+```
+
+---
+
+## wire:model.lazy
+
+Atualiza apenas no evento `blur`.
+
+Utilize para campos longos que não exigem sincronização contínua.
+
+Exemplo:
+
+```blade
+<textarea
+    wire:model.lazy="description">
+</textarea>
+```
+
+Preferido para:
+
+- descrições;
+- observações;
+- textos do Briefing.
+
+---
+
+## wire:model.defer
+
+Padrão recomendado para formulários completos.
+
+Todos os valores são enviados apenas no submit.
+
+Exemplo:
+
+```blade
+<form wire:submit="save">
+
+    <input wire:model.defer="title">
+
+    <textarea wire:model.defer="description"></textarea>
+
+</form>
+```
+
+Este deve ser o padrão para:
+
+- Briefing Generation;
+- Brand Core;
+- Brand Assets;
+- formulários administrativos.
+
+---
+
+## wire:model.debounce.500ms
+
+Utilizar exclusivamente para buscas em tempo real.
+
+```blade
+<input
+    wire:model.debounce.500ms="query"
+/>
+```
+
+Exemplo:
+
+- busca de Library;
+- busca de referências;
+- autocomplete.
+
+Nunca utilizar debounce em campos comuns de formulário.
+
+---
+
+# M.3 Actions e Submit
+
+Toda submissão deve ocorrer através de `<form>`.
+
+Nunca utilizar botão isolado para enviar formulários.
+
+---
+
+## Correto
+
+```blade
+<form wire:submit="save">
+
+    ...
+
+</form>
+```
+
+---
+
+## Incorreto
+
+```blade
+<button wire:click="save">
+
+Salvar
+
+</button>
+```
+
+---
+
+## Validação
+
+Sempre validar antes de qualquer lógica.
+
+```php
+public function save(): void
+{
+    $this->validate();
+
+    ...
+}
+```
+
+---
+
+## Navegação
+
+Após sucesso:
+
+Utilizar:
+
+```php
+return redirect()
+    ->route(...);
+```
+
+Quando permanecer na mesma página:
+
+```php
+$this->dispatch(
+    'briefing-created'
+);
+```
+
+---
+
+## Loading
+
+Todo botão de submit deve possuir estado de carregamento.
+
+Nunca permitir múltiplos envios.
+
+---
+
+# M.4 Loading States
+
+Padrão obrigatório.
+
+```blade
+<button
+    wire:click="executePipeline"
+    wire:loading.attr="disabled"
+>
+    <span wire:loading.remove>
+        Run Pipeline
+    </span>
+
+    <span wire:loading>
+        Processing...
+    </span>
+</button>
+```
+
+---
+
+## Pipelines
+
+Após o dispatch do Job:
+
+O botão deixa de representar o progresso.
+
+O componente responsável passa a ser:
+
+```
+ExecutionStatus
+```
+
+que acompanha a execução via Reverb.
+
+---
+
+## Regra
+
+Nunca deixar ações que consomem créditos sem loading state.
+
+Isso evita:
+
+- clique duplo;
+- consumo duplicado;
+- múltiplas execuções.
+
+---
+
+# M.5 Escutando Eventos Reverb
+
+O Tiny AI Lab utiliza Laravel Reverb.
+
+Componentes devem reagir apenas aos metadados necessários.
+
+---
+
+## Exemplo
+
+```php
+use Livewire\Attributes\On;
+
+#[On(
+    'echo-private:execution.{executionId},ExecutionUpdated'
+)]
+public function onExecutionUpdated(
+    array $event
+): void {
+
+    $this->status = $event['status'];
+
+}
+```
+
+---
+
+## Nunca
+
+Nunca carregar:
+
+```
+result
+```
+
+via evento.
+
+O broadcast transmite apenas:
+
+- status;
+- timestamps;
+- identificador;
+- progresso (quando existir).
+
+---
+
+## Canal
+
+O nome do canal deve coincidir exatamente com:
+
+```text
+routes/channels.php
+```
+
+Nunca criar nomes arbitrários.
+
+---
+
+## Polling
+
+Caso Reverb esteja indisponível:
+
+```php
+#[Polling(3000)]
+```
+
+A documentação oficial do projeto prevê polling apenas como mecanismo de fallback.
+
+---
+
+# M.6 Validação
+
+Para validação em tempo real:
+
+Utilizar:
+
+```php
+#[Validate(
+    'required|min:3'
+)]
+public string $title = '';
+```
+
+---
+
+Para submissão:
+
+```php
+$this->validate();
+```
+
+---
+
+## Form Requests
+
+Quando a lógica estiver concentrada em endpoint HTTP:
+
+Não duplicar regras.
+
+O componente deve delegar ao endpoint responsável.
+
+---
+
+## Blade
+
+Sempre utilizar:
+
+```blade
+@error('title')
+
+<div>
+
+{{ $message }}
+
+</div>
+
+@enderror
+```
+
+Nunca exibir mensagens manualmente.
+
+---
+
+# M.7 Lazy Components
+
+Componentes pesados devem ser carregados sob demanda.
+
+Utilizar:
+
+```blade
+<livewire:history-list lazy />
+```
+
+ou
+
+```blade
+@livewire(
+    'history-list',
+    lazy: true
+)
+```
+
+---
+
+## Candidatos
+
+- HistoryList
+- ExecutionHistory
+- AiHealthDashboard
+- ExecutionResult
+- LibraryList
+
+---
+
+## Placeholder
+
+Sempre implementar:
+
+```php
+public function placeholder()
+{
+    return view(
+        'livewire.placeholders.history-list'
+    );
+}
+```
+
+Nunca deixar área vazia durante carregamento.
+
+---
+
+# M.8 Brand Switcher — Propagação de Contexto
+
+A Brand ativa define o contexto completo da aplicação.
+
+Toda troca deve propagar imediatamente o novo contexto.
+
+---
+
+## Fluxo Oficial
+
+```text
+Usuário
+
+↓
+
+BrandSwitcher
+
+↓
+
+Atualiza sessão
+
+↓
+
+Dispatch brand-switched
+
+↓
+
+Componentes atualizam estado
+
+↓
+
+Queries passam a usar novo project_id
+```
+
+---
+
+## Implementação
+
+```php
+$this->dispatch(
+
+    'brand-switched',
+
+    projectId: $project->id
+
+);
+```
+
+---
+
+## Componentes Dependentes
+
+```php
+#[On('brand-switched')]
+public function reload(
+    int $projectId
+): void {
+
+    ...
+
+}
+```
+
+---
+
+## Sessão
+
+A Brand ativa continua armazenada em sessão Laravel, conforme definido na arquitetura.
+
+O evento Livewire existe para sincronizar imediatamente a interface.
+
+Portanto, a estratégia oficial combina:
+
+- sessão como fonte de verdade;
+- evento para reatividade.
+
+---
+
+# M.9 O Que Nunca Fazer em Livewire
+
+Nunca realizar chamadas HTTP externas.
+
+Sempre utilizar Jobs.
+
+---
+
+Nunca chamar:
+
+```php
+Http::post(...);
+```
+
+dentro de componentes.
+
+---
+
+Nunca acessar:
+
+```php
+request()
+```
+
+diretamente.
+
+Receba dados via:
+
+```php
+mount()
+```
+
+ou propriedades.
+
+---
+
+Nunca implementar:
+
+- regras de créditos;
+- autorização;
+- cobrança;
+- comunicação com Stripe;
+- comunicação com Firebase.
+
+Tudo pertence ao backend.
+
+---
+
+Nunca utilizar Session para estado reativo.
+
+A sessão armazena apenas contexto persistente (como Brand ativa).
+
+O estado visual pertence ao componente.
+
+---
+
+Nunca renderizar:
+
+```
+Execution.result
+```
+
+integralmente durante a renderização inicial.
+
+Utilizar:
+
+- lazy loading;
+- paginação;
+- componentes dedicados.
+
+---
+
+# M.10 Comunicação entre Componentes
+
+A comunicação deve utilizar exclusivamente eventos Livewire.
+
+Nunca acessar diretamente propriedades internas de outro componente.
+
+Exemplo correto:
+
+```php
+$this->dispatch(
+    'execution-created',
+    executionId: $execution->id
+);
+```
+
+Componente receptor:
+
+```php
+#[On('execution-created')]
+public function refreshExecution(
+    int $executionId
+): void
+{
+    ...
+}
+```
+
+---
+
+# M.11 Ciclo de Vida
+
+Utilize cada hook apenas para sua finalidade.
+
+| Hook | Utilização |
+|-------|------------|
+| `mount()` | Inicialização e injeção de dependências simples |
+| `boot()` | Configuração interna do componente |
+| `hydrate()` | Ajustes após hidratação |
+| `render()` | Apenas retornar a view |
+
+Nunca executar consultas pesadas em `render()`.
+
+Toda consulta recorrente deve utilizar propriedades computadas, paginação ou cache quando apropriado.
+
+---
+
+# M.12 Componentes Compartilhados
+
+Os seguintes componentes devem ser tratados como componentes globais reutilizáveis:
+
+- Sidebar
+- Header
+- BrandSwitcher
+- NotificationDropdown
+- LanguageSwitcher
+- ThemeToggle
+- LogoutModal
+- ExecutionStatus
+
+Não duplicar implementações equivalentes em páginas diferentes.
+
+---
+
+> ⚠️ **Regra crítica:** Componentes Livewire pertencem exclusivamente à camada de apresentação. Eles controlam estado da interface, validação visual e interação do usuário. Nunca implemente lógica de domínio, consumo de créditos, autorização, comunicação com n8n ou integração com APIs externas dentro de componentes Livewire.
+
+
+# Apêndice N — Estratégia de Cache Redis
+
+## Objetivo
+
+Este apêndice define a estratégia oficial de utilização do Redis no Tiny AI Lab.
+
+Todos os agentes de IA devem utilizar exatamente as mesmas chaves, TTLs e políticas de invalidação.
+
+É proibido criar novas convenções de cache sem atualização deste documento.
+
+---
+
+# N.1 Responsabilidades do Redis no Projeto
+
+O Redis possui três responsabilidades distintas na arquitetura.
+
+Cada responsabilidade deve permanecer isolada.
+
+---
+
+## 1. Backend de Filas (Laravel Horizon)
+
+Responsável por:
+
+- filas;
+- Jobs;
+- retry;
+- delayed jobs;
+- métricas do Horizon.
+
+Toda interação ocorre exclusivamente através do sistema de filas do Laravel.
+
+Nunca acessar diretamente estruturas internas do Horizon utilizando comandos Redis.
+
+Sempre utilizar:
+
+```php
+ExecutePipelineJob::dispatch($execution->id);
+```
+
+Nunca:
+
+```php
+Redis::lpush(...);
+```
+
+---
+
+## 2. Cache da Aplicação
+
+Responsável por reduzir consultas repetidas ao PostgreSQL.
+
+Toda leitura deve utilizar:
+
+```php
+Cache::
+```
+
+Nunca utilizar diretamente:
+
+```php
+Redis::
+```
+
+para dados de aplicação.
+
+A fachada `Cache` representa a única API oficial.
+
+---
+
+## 3. Armazenamento Temporário
+
+Os documentos atuais identificam apenas o armazenamento da Brand ativa como estado temporário.
+
+Outros usos permanecem:
+
+**[A DEFINIR]**
+
+---
+
+# N.2 Convenção Oficial de Chaves
+
+Todas as chaves seguem obrigatoriamente o padrão:
+
+```text
+{prefixo}:{identificador}
+```
+
+Nunca utilizar:
+
+```text
+credits42
+
+my_cache
+
+foo
+
+config1
+```
+
+---
+
+## Plan Limits
+
+Formato:
+
+```text
+plan_limits:{action}
+```
+
+Exemplo:
+
+```text
+plan_limits:brand_research
+
+plan_limits:image_generation
+```
+
+TTL:
+
+```
+60 minutos
+```
+
+Invalidado quando:
+
+- administrador altera `plan_limits`.
+
+---
+
+## Créditos Utilizados
+
+Formato:
+
+```text
+credits_used:{user_id}:{ano_mes}
+```
+
+Exemplo:
+
+```text
+credits_used:42:2026-07
+```
+
+TTL:
+
+Até o final do mês corrente.
+
+Invalidado quando:
+
+- mudança de mês;
+- recálculo administrativo.
+
+---
+
+## Brand Ativa
+
+Formato:
+
+```text
+active_brand:{user_id}
+```
+
+Exemplo:
+
+```text
+active_brand:42
+```
+
+TTL:
+
+Durante toda a sessão autenticada.
+
+Invalidado quando:
+
+- usuário troca de Brand.
+
+---
+
+## Configurações
+
+Formato:
+
+```text
+app_config:{chave}
+```
+
+Exemplo:
+
+```text
+app_config:maintenance_mode
+
+app_config:default_language
+```
+
+TTL:
+
+```
+5 minutos
+```
+
+Invalidado quando:
+
+- administrador altera configurações.
+
+---
+
+## Resumo
+
+| Chave | Exemplo | TTL | Invalidada Quando |
+|--------|----------|-----|------------------|
+| `plan_limits:{action}` | `plan_limits:brand_research` | 60 min | Alteração de `plan_limits` |
+| `credits_used:{user_id}:{ano_mes}` | `credits_used:42:2026-07` | Fim do mês | Reset mensal |
+| `active_brand:{user_id}` | `active_brand:42` | Sessão | Troca de Brand |
+| `app_config:{key}` | `app_config:maintenance_mode` | 5 min | Alteração manual |
+
+---
+
+# N.3 Implementação Padrão
+
+Toda leitura deve utilizar `Cache::remember()`.
+
+Este é o padrão obrigatório.
+
+---
+
+## Correto
+
+```php
+$cost = Cache::remember(
+    "plan_limits:{$action}",
+    now()->addMinutes(60),
+    fn () => PlanLimit::query()
+        ->where('action', $action)
+        ->value('credits')
+);
+```
+
+---
+
+Outro exemplo:
+
+```php
+$config = Cache::remember(
+    'app_config:maintenance_mode',
+    now()->addMinutes(5),
+    fn () => Setting::query()
+        ->where('key', 'maintenance_mode')
+        ->value('value')
+);
+```
+
+---
+
+## Incorreto
+
+```php
+$cost = PlanLimit::query()
+    ->where('action', $action)
+    ->value('credits');
+```
+
+Esta consulta cria um hot path desnecessário no PostgreSQL.
+
+---
+
+## Nunca
+
+Nunca utilizar:
+
+```php
+Redis::get(...)
+```
+
+para dados de domínio quando houver equivalente em `Cache`.
+
+---
+
+# N.4 Estratégia de Invalidação
+
+A invalidação deve ocorrer imediatamente após alteração da fonte de verdade.
+
+Nunca depender exclusivamente do TTL quando o sistema conhece o momento da mudança.
+
+---
+
+## Plan Limits
+
+Evento:
+
+Administrador altera custo de créditos.
+
+Implementação:
+
+```php
+Cache::forget(
+    "plan_limits:{$action}"
+);
+```
+
+Invalidação:
+
+Imediata.
+
+---
+
+## Brand Ativa
+
+Evento:
+
+Usuário seleciona outra Brand.
+
+Implementação:
+
+```php
+Cache::forget(
+    "active_brand:{$user->id}"
+);
+```
+
+Novo valor deve ser gravado imediatamente após a troca.
+
+---
+
+## Configuração
+
+Evento:
+
+Alteração administrativa.
+
+Implementação:
+
+```php
+Cache::forget(
+    "app_config:{$key}"
+);
+```
+
+---
+
+## Créditos Mensais
+
+Evento:
+
+Mudança de competência.
+
+Implementação:
+
+Recalcular e recriar a chave.
+
+---
+
+## Cache Tags
+
+Como o driver oficial é Redis, o Laravel oferece suporte a Cache Tags.
+
+Entretanto, o SAD atual não define sua utilização.
+
+Estado:
+
+**[A DEFINIR]**
+
+Até definição formal, utilizar `Cache::forget()` para invalidação individual.
+
+---
+
+# N.5 O Que Nunca Cachear
+
+Alguns dados jamais devem ser armazenados no Redis.
+
+---
+
+## Execution.result
+
+Nunca cachear.
+
+Motivos:
+
+- tamanho imprevisível;
+- JSONB potencialmente superior a dezenas de KB;
+- alto consumo de memória;
+- atualização durante processamento.
+
+---
+
+## Tokens Firebase
+
+Nunca cachear.
+
+Motivos:
+
+- possuem expiração própria;
+- podem ser revogados;
+- risco de autenticação inconsistente.
+
+---
+
+## Saldo de Créditos Durante Execução
+
+Nunca manter cache do saldo em operações de débito.
+
+Motivo:
+
+possibilidade de race condition entre múltiplas execuções concorrentes.
+
+Sempre consultar a fonte de verdade no momento da operação crítica.
+
+---
+
+## Dados Completos do Usuário
+
+Nunca cachear o objeto User completo.
+
+Caso necessário, armazenar apenas identificadores temporários.
+
+---
+
+## Resultados de Pipelines
+
+Nunca armazenar:
+
+```
+Execution.result
+```
+
+no Redis.
+
+Persistir exclusivamente em PostgreSQL.
+
+---
+
+# N.6 Prefixo de Ambiente
+
+O projeto deve utilizar prefixos distintos por ambiente.
+
+Exemplos:
+
+```text
+tinyai_local_
+
+tinyai_staging_
+
+tinyai_prod_
+```
+
+O prefixo é configurado através do Laravel.
+
+Exemplo:
+
+```env
+REDIS_PREFIX=tinyai_prod_
+```
+
+Não incluir manualmente o prefixo nas chaves.
+
+Nunca criar:
+
+```text
+tinyai_prod_plan_limits:...
+```
+
+O framework realiza essa concatenação automaticamente.
+
+---
+
+# N.7 Organização em Databases Redis
+
+Para evitar conflito entre filas e cache, utilizar databases distintos.
+
+| Database | Finalidade |
+|-----------|------------|
+| DB 0 | Horizon, Queues |
+| DB 1 | Cache da aplicação |
+
+Nunca compartilhar o mesmo database entre filas e cache quando houver risco de política de eviction afetar Jobs.
+
+---
+
+## Política de Eviction
+
+As necessidades do Horizon e do cache são diferentes.
+
+### Filas
+
+Objetivo:
+
+Jamais perder Jobs.
+
+Política recomendada:
+
+```text
+noeviction
+```
+
+---
+
+### Cache
+
+Objetivo:
+
+Descartar entradas menos utilizadas quando necessário.
+
+Política recomendada:
+
+```text
+allkeys-lru
+```
+
+---
+
+Como uma única instância Redis não pode operar simultaneamente com duas políticas de eviction por database, esta configuração depende da estratégia operacional adotada para o servidor Redis.
+
+O mecanismo exato permanece:
+
+**[A DEFINIR]**
+
+Caso seja utilizada apenas uma instância Redis, a política global deverá ser escolhida considerando a preservação das filas como prioridade.
+
+---
+
+# N.8 Monitoramento
+
+Monitorar continuamente:
+
+- uso de memória;
+- número de chaves;
+- hit ratio;
+- filas;
+- latência.
+
+---
+
+## Indicadores Mínimos
+
+- Memória utilizada
+- Memória livre
+- Evictions
+- Connected Clients
+- Keyspace Hits
+- Keyspace Misses
+
+---
+
+## Horizon
+
+Monitorar:
+
+- Jobs pendentes
+- Jobs falhos
+- Tempo médio
+- Throughput
+- Workers ativos
+
+---
+
+## Alertas
+
+Sempre investigar:
+
+- aumento contínuo de memória;
+- crescimento inesperado do número de chaves;
+- aumento de cache miss;
+- crescimento da fila `default`;
+- falhas recorrentes em Jobs.
+
+---
+
+# N.9 Checklist de Uso do Cache
+
+Antes de adicionar uma nova entrada em cache, responder obrigatoriamente às seguintes perguntas:
+
+- [ ] O dado é derivado de uma fonte de verdade persistente?
+- [ ] O dado é lido com frequência suficiente para justificar cache?
+- [ ] Existe uma estratégia clara de invalidação?
+- [ ] O TTL está definido?
+- [ ] A chave segue o padrão `{prefixo}:{identificador}`?
+- [ ] O valor não contém dados sensíveis?
+- [ ] O valor não representa estado mutável crítico?
+- [ ] A aplicação continua correta caso o cache expire imediatamente?
+
+Se qualquer resposta for negativa, reavalie a necessidade de utilizar Redis.
+
+---
+
+> ⚠️ **Regra crítica:** O Redis é uma camada de aceleração, nunca uma fonte de verdade. Toda informação crítica do Tiny AI Lab deve permanecer persistida no PostgreSQL. O sistema deve continuar funcional mesmo que todo o conteúdo do Redis seja perdido, restando apenas degradação de desempenho e reprocessamento de cache.
