@@ -30,6 +30,11 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'firebase_uid' => (string) Str::uuid(),
+            'plan' => 'free',
+            'credits_balance' => 0,
+            'has_completed_setup' => false,
+            'notify_on_completion' => true,
         ];
     }
 
@@ -40,6 +45,39 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is on the free plan.
+     */
+    public function free(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'plan' => 'free',
+            'credits_balance' => 500,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is on the pro plan.
+     */
+    public function pro(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'plan' => 'pro',
+            'credits_balance' => 10000,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is on the enterprise plan.
+     */
+    public function enterprise(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'plan' => 'enterprise',
+            'credits_balance' => 0,
         ]);
     }
 }
