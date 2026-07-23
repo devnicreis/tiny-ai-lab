@@ -18,7 +18,15 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();
+
+            $table->string('firebase_uid')->unique();
+            $table->enum('plan', ['free', 'pro', 'enterprise'])->default('free');
+            $table->unsignedInteger('credits_balance')->default(0);
+            $table->boolean('has_completed_setup')->default(false);
+            $table->boolean('notify_on_completion')->default(true);
+
             $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
