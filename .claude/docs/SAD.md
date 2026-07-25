@@ -9497,6 +9497,13 @@ Não duplicar implementações equivalentes em páginas diferentes.
 
 > ⚠️ **Regra crítica:** Componentes Livewire pertencem exclusivamente à camada de apresentação. Eles controlam estado da interface, validação visual e interação do usuário. Nunca implemente lógica de domínio, consumo de créditos, autorização, comunicação com n8n ou integração com APIs externas dentro de componentes Livewire.
 
+## Nota Arquitetural — Tailwind v4
+
+O projeto usa Tailwind CSS v4 via @tailwindcss/vite.
+NÃO existe tailwind.config.js — a configuração é feita via
+@theme no arquivo resources/css/app.css.
+Nunca criar tailwind.config.js em sessões futuras.
+
 
 # Apêndice N — Estratégia de Cache Redis
 

@@ -47,19 +47,20 @@ A arquitetura oficial é um monólito Laravel utilizando Blade + Livewire, execu
 5. Nunca validar dados em Controllers; utilizar sempre Form Requests.
 6. Nunca implementar lógica de negócio em componentes Livewire; eles apenas apresentam dados e disparam ações.
 7. Toda regra de domínio deve residir em Services, Actions, Jobs ou no próprio domínio.
-8. Nunca hardcode valores de consumo de créditos; utilizar sempre plan_limits cacheado.
-9. Toda consulta relacionada ao domínio deve ser obrigatoriamente escopada pela Brand ativa (project_id).
-10. Nunca carregar executions.result em listagens; utilizar select() explícito contendo apenas os campos necessários.
-11. Nunca incluir executions.result em eventos de broadcast; transmitir apenas metadados da execução.
-12. Nunca armazenar tokens do Firebase em cache; sua revogação é gerenciada pelo próprio Firebase.
-13. DevelopmentSeeder somente pode ser executado quando APP_ENV=local.
-14. Comparações do header X-N8N-Secret devem utilizar exclusivamente hash_equals(); nunca utilizar == ou ===.
-15. Utilizar sempre $table->jsonb() nas migrations PostgreSQL; nunca utilizar $table->json().
-16. Declarar sempre $fillable explicitamente em todos os Models; nunca utilizar protected $guarded = [].
-17. Toda comunicação Laravel ↔ n8n deve ocorrer exclusivamente via Webhooks HTTP autenticados.
-18. Toda execução de IA deve ser assíncrona utilizando Redis, Horizon e Queue Workers.
-19. O modo Dark é o padrão oficial; o elemento <html> deve iniciar sempre com class="dark".
-20. A fonte oficial do sistema é Inter; nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
+8. `App\Actions` é utilizado exclusivamente para operações de sincronização de autenticação. Exemplo canônico: `App\Actions\Auth\SyncFirebaseUserAction` (upsert do usuário Firebase no banco local, injetado no AuthController e no VerifyFirebaseToken middleware). Novas Actions fora do domínio de Auth exigem ADR antes de serem criadas.
+9. Nunca hardcode valores de consumo de créditos; utilizar sempre plan_limits cacheado.
+10. Toda consulta relacionada ao domínio deve ser obrigatoriamente escopada pela Brand ativa (project_id).
+11. Nunca carregar executions.result em listagens; utilizar select() explícito contendo apenas os campos necessários.
+12. Nunca incluir executions.result em eventos de broadcast; transmitir apenas metadados da execução.
+13. Nunca armazenar tokens do Firebase em cache; sua revogação é gerenciada pelo próprio Firebase.
+14. DevelopmentSeeder somente pode ser executado quando APP_ENV=local.
+15. Comparações do header X-N8N-Secret devem utilizar exclusivamente hash_equals(); nunca utilizar == ou ===.
+16. Utilizar sempre $table->jsonb() nas migrations PostgreSQL; nunca utilizar $table->json().
+17. Declarar sempre $fillable explicitamente em todos os Models; nunca utilizar protected $guarded = [].
+18. Toda comunicação Laravel ↔ n8n deve ocorrer exclusivamente via Webhooks HTTP autenticados.
+19. Toda execução de IA deve ser assíncrona utilizando Redis, Horizon e Queue Workers.
+20. O modo Dark é o padrão oficial; o elemento <html> deve iniciar sempre com class="dark".
+21. A fonte oficial do sistema é Inter; nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
 
 ## 4. Estrutura de Diretórios
 
@@ -68,7 +69,8 @@ Somente os diretórios abaixo fazem parte da arquitetura oficial do Tiny AI Lab 
 ```text
 app/
 ├── Actions/
-│   ├── Auth/
+├── Auth/
+│   ├── SyncFirebaseUserAction.php  # upsert Firebase→PostgreSQL
 │   ├── Billing/
 │   ├── Executions/
 │   ├── Projects/
@@ -525,3 +527,4 @@ Executa os testes em paralelo.
 - Queue Workers devem consumir apenas as filas para as quais foram configurados.
 - Todo código novo deve ser formatado utilizando Laravel Pint antes do commit.
 ```
+
