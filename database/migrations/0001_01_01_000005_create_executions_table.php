@@ -42,17 +42,19 @@ return new class extends Migration
             $table->index(['project_id', 'created_at']);
         });
 
-        DB::statement(
-            'CREATE INDEX executions_config_gin
-             ON executions
-             USING GIN (config);'
-        );
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement(
+                'CREATE INDEX executions_config_gin
+                 ON executions
+                 USING GIN (config);'
+            );
 
-        DB::statement(
-            'CREATE INDEX executions_result_gin
-             ON executions
-             USING GIN (result);'
-        );
+            DB::statement(
+                'CREATE INDEX executions_result_gin
+                 ON executions
+                 USING GIN (result);'
+            );
+        }
     }
 
     public function down(): void

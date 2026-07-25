@@ -3,13 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Execution extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'project_id',
@@ -19,6 +20,9 @@ class Execution extends Model
         'result',
         'credits_consumed',
         'tokens_used',
+        'completed_at',
+        'failed_at',
+        'error_message',
     ];
 
     protected function casts(): array
