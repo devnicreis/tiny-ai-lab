@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ProjectController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -18,4 +19,10 @@ Route::post('/auth/firebase', [AuthController::class, 'firebase']);
 
 Route::middleware('auth.firebase')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
+
+    Route::get('/projects', [ProjectController::class, 'index']);
+    Route::post('/projects', [ProjectController::class, 'store']);
+    Route::get('/projects/{project}', [ProjectController::class, 'show']);
+    Route::match(['put', 'patch'], '/projects/{project}', [ProjectController::class, 'update']);
+    Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
 });
