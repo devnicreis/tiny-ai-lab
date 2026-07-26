@@ -5996,9 +5996,124 @@ Não interfere no funcionamento do sistema.
 
 ---
 
-# 14. Progressive Web App (PWA)
+# 14. Painel Administrativo
 
-## 14.1 Objetivo
+## 14.1 Propósito
+
+O Painel Administrativo é a interface interna de operação do Tiny AI Lab.
+
+Ele existe para que a operação do produto — suporte, correção de saldo, inspeção de conta e diagnóstico de execuções — seja realizada dentro do domínio Laravel, sujeita às mesmas Policies, Services e regras de negócio da aplicação, e **nunca** através de acesso manual ao banco de dados.
+
+Toda tarefa administrativa que hoje seria resolvida com um `UPDATE` manual em produção deve, obrigatoriamente, possuir uma ação equivalente no Painel Administrativo.
+
+---
+
+## 14.2 Quem Acessa
+
+O acesso é restrito aos operadores internos do produto — atualmente apenas os dois fundadores (Nicolas e Erich).
+
+A identificação de um administrador ocorre exclusivamente pela coluna booleana `is_admin` na tabela `users`.
+
+Não existe autoatendimento, convite ou promoção de administradores pela interface: a atribuição de `is_admin` é realizada manualmente em banco pelos fundadores.
+
+O Painel Administrativo **não** substitui a autenticação Firebase. Um administrador continua sendo um usuário comum que autentica via Firebase ID Token; `is_admin` concede apenas autorização adicional dentro do Laravel.
+
+---
+
+## 14.3 Decisão Fixa — `is_admin` na Tabela `users`
+
+**Decisão:** o papel de administrador é representado por uma coluna booleana `is_admin` na tabela `users`.
+
+**Status:** decisão fixa. Este ponto **não** é `[A DEFINIR]`.
+
+**Alternativa rejeitada:** tabela separada (`admins`, `roles`, `permissions`) ou pacote de RBAC.
+
+**Motivo:** o universo de administradores é fechado e composto por dois operadores internos, sem hierarquia, sem delegação e sem granularidade de permissão. Uma tabela de papéis introduziria joins, cache de permissões e superfície de erro sem resolver nenhum problema existente.
+
+**Condição de reavaliação:** apenas por meio de uma ADR aprovada, e apenas se o sistema passar a contar com múltiplos funcionários exigindo hierarquia ou permissões granulares.
+
+---
+
+## 14.4 Dependências
+
+O Painel Administrativo é um consumidor de domínio já existente. Ele não introduz um modelo de dados paralelo.
+
+| Domínio | Origem | Uso no painel |
+|---------|--------|---------------|
+| Users | Tabela `users` | Listagem, busca, inspeção de conta, ajuste de créditos |
+| Subscriptions | Laravel Cashier / Stripe | Leitura do plano e do status da assinatura do usuário |
+| Executions | Tabela `executions` | Diagnóstico de execuções e histórico por usuário e Brand |
+
+Consequência de ordenação: o Painel Administrativo depende da conclusão da fase de Stripe/Cashier e do módulo de Executions. Ele não pode ser iniciado antes.
+
+---
+
+## 14.5 Divisão de Responsabilidade — Metabase vs Painel Livewire
+
+A operação interna do Tiny AI Lab é atendida por duas ferramentas distintas, com fronteira explícita.
+
+| | Metabase | Painel Administrativo (Livewire) |
+|--|----------|----------------------------------|
+| Natureza | Leitura e análise | Escrita e operação |
+| Escopo | Relatórios agregados e BI | Ações sobre um usuário específico |
+| Exemplos | MRR, coortes, retenção, churn, volume de execuções por pipeline | Ajuste manual de créditos, inspeção de conta, alteração de status de conta |
+| Regras de negócio | Nenhuma | Todas — Policies, Services e validação de domínio |
+| Auditoria | Não aplicável (somente leitura) | Obrigatória em `admin_action_logs` |
+
+**Regra de fronteira:** se a pergunta é *"quanto"* ou *"qual a tendência"*, a resposta pertence ao Metabase. Se a operação é *"alterar o dado de um usuário"*, ela pertence ao Painel Livewire.
+
+Nenhum relatório agregado de BI deve ser reimplementado em Livewire, e nenhuma escrita deve ser realizada pelo Metabase.
+
+---
+
+## 14.6 Auditoria
+
+Toda ação administrativa que altera dados de um usuário é registrada na tabela `admin_action_logs` **antes** de o sucesso ser retornado ao administrador.
+
+O registro é permanente: `admin_action_logs` não utiliza Soft Deletes e não possui rotina de expurgo.
+
+O detalhamento de colunas e da camada responsável pelo registro encontra-se em `IMPLEMENTATION_ORDER.md`, Mês 4, Fase 4.2.
+
+---
+
+## 14.7 Lacuna Arquitetural — Acesso do Metabase aos Dados
+
+O Metabase é uma ferramenta de leitura externa e, portanto, entra em tensão direta com a propriedade exclusiva do banco pelo Laravel.
+
+### Regras em Jogo
+
+Uma futura ADR que resolva esta lacuna deverá confrontar — e, se for o caso, emendar — exatamente os quatro registros abaixo. Nenhum outro ponto da documentação restringe o acesso direto ao PostgreSQL.
+
+| Documento | Localização exata | Texto da regra |
+|-----------|-------------------|----------------|
+| `SAD.md` | **Seção 1.6 — Premissas Arquiteturais Não-Negociáveis**, premissa *"Laravel é o único dono do banco"* | "Nenhum outro serviço possui acesso direto ao PostgreSQL." |
+| `SAD.md` | **Seção 18 — Restrições e Regras Invioláveis (para Agentes de IA)**, subseção *"Arquitetura"* | "**SEMPRE** faça toda persistência exclusivamente pelo Laravel." |
+| `CLAUDE.md` | **Seção 3 — Regras Invioláveis**, **regra 1** | "Laravel é o único serviço autorizado a acessar diretamente o PostgreSQL." |
+| `PROJECT_RULES.md` | **Seção 4 — Decisões Arquiteturais Fixadas**, linha *"Apenas Laravel acessa PostgreSQL"* | Marcada como "Nunca Reverter Sem ADR: Sim". |
+
+Observar que a Seção 1.6 e a `CLAUDE.md` regra 1 são formuladas de modo **absoluto** (qualquer serviço), enquanto a Seção 18 e o `PROJECT_RULES.md` foram redigidos tendo o n8n como alvo concreto. A ADR precisa deixar explícito se a exceção de leitura vale apenas para BI ou se reformula a premissa como um todo.
+
+### Alternativas Conhecidas
+
+- réplica de leitura dedicada ao BI;
+- usuário PostgreSQL somente-leitura, restrito a views analíticas;
+- exportação periódica para um destino analítico separado.
+
+A escolha entre essas alternativas permanece:
+
+**[A DEFINIR]**
+
+Esta lacuna deve ser resolvida por uma ADR aprovada **antes** da introdução do Metabase na infraestrutura. Ela não bloqueia a implementação do Painel Administrativo em Livewire, que é independente do Metabase.
+
+---
+
+> ⚠️ **Regra crítica:** As rotas `/admin/*` nunca compartilham Controllers com as rotas de Web ou de Api. Todo Controller administrativo reside em `App\Http\Controllers\Admin`, e toda ação que altera dados de um usuário deve estar registrada em `admin_action_logs` antes do retorno de sucesso.
+
+---
+
+# 15. Progressive Web App (PWA)
+
+## 15.1 Objetivo
 
 O Tiny AI Lab deve ser disponibilizado como Progressive Web App (PWA), permitindo instalação em dispositivos compatíveis e melhorando a experiência de uso em desktop e mobile.
 
@@ -6006,7 +6121,7 @@ A arquitetura continua sendo uma aplicação web; o PWA não substitui uma aplic
 
 ---
 
-# 14.2 manifest.json
+# 15.2 manifest.json
 
 Arquivo:
 
@@ -6043,7 +6158,7 @@ Todos permanecem:
 
 ---
 
-# 14.3 Service Worker
+# 15.3 Service Worker
 
 Arquivo:
 
@@ -6091,7 +6206,7 @@ Não há documentação autorizando cache de respostas dinâmicas da aplicação
 
 ---
 
-# 14.4 Atualizações
+# 15.4 Atualizações
 
 A política de atualização do Service Worker não está documentada.
 
@@ -6101,7 +6216,7 @@ Permanece:
 
 ---
 
-# 14.5 Limitações iOS
+# 15.5 Limitações iOS
 
 A documentação reconhece limitações inerentes ao Safari/iOS.
 
@@ -6115,7 +6230,7 @@ Não há adaptações específicas documentadas para iOS.
 
 ---
 
-# 14.6 Escopo
+# 15.6 Escopo
 
 O PWA melhora:
 
@@ -6135,9 +6250,9 @@ Ele não altera:
 > ⚠️ **Regra crítica:** O PWA é uma camada de experiência do usuário. Nenhuma regra de negócio, autenticação, autorização ou processamento de IA deve ser implementada no Service Worker.
 
 
-# 15. Variáveis de Ambiente
+# 16. Variáveis de Ambiente
 
-## 15.1 Visão Geral
+## 16.1 Visão Geral
 
 Todas as credenciais e parâmetros sensíveis devem ser configurados exclusivamente através do arquivo `.env`.
 
@@ -6153,7 +6268,7 @@ diretamente no código-fonte.
 
 ---
 
-# 15.2 App
+# 16.2 App
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6167,7 +6282,7 @@ diretamente no código-fonte.
 
 ---
 
-# 15.3 Banco de Dados
+# 16.3 Banco de Dados
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6186,7 +6301,7 @@ PostgreSQL
 
 ---
 
-# 15.4 Redis
+# 16.4 Redis
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6203,7 +6318,7 @@ Redis é utilizado para:
 
 ---
 
-# 15.5 Firebase
+# 16.5 Firebase
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6216,7 +6331,7 @@ Demais parâmetros permanecem:
 
 ---
 
-# 15.6 n8n
+# 16.6 n8n
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6229,7 +6344,7 @@ Caso outros parâmetros sejam necessários, permanecem:
 
 ---
 
-# 15.7 Stripe
+# 16.7 Stripe
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6239,7 +6354,7 @@ Caso outros parâmetros sejam necessários, permanecem:
 
 ---
 
-# 15.8 Laravel Reverb
+# 16.8 Laravel Reverb
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6253,7 +6368,7 @@ Demais parâmetros seguem a configuração oficial do Laravel Reverb.
 
 ---
 
-# 15.9 Sentry
+# 16.9 Sentry
 
 | Variável | Finalidade |
 |----------|------------|
@@ -6265,7 +6380,7 @@ Configurações adicionais:
 
 ---
 
-# 15.10 Mail
+# 16.10 Mail
 
 A documentação identifica utilização do sistema padrão do Laravel.
 
@@ -6287,7 +6402,7 @@ O provedor SMTP permanece:
 
 ---
 
-# 15.11 IA
+# 16.11 IA
 
 As integrações de IA utilizam variáveis específicas.
 
@@ -6300,7 +6415,7 @@ As integrações de IA utilizam variáveis específicas.
 
 ---
 
-# 15.12 Produção
+# 16.12 Produção
 
 Em ambiente de produção:
 
@@ -6315,7 +6430,7 @@ Em ambiente de produção:
 
 ---
 
-# 16. Decisões Arquiteturais (ADRs)
+# 17. Decisões Arquiteturais (ADRs)
 
 ## ADR-001 — Blade + Livewire vs Next.js
 
@@ -6531,7 +6646,7 @@ O uso de JSONB oferece:
 
 ---
 
-# 17. Restrições e Regras Invioláveis (para Agentes de IA)
+# 18. Restrições e Regras Invioláveis (para Agentes de IA)
 
 As regras abaixo possuem caráter imperativo.
 
