@@ -61,6 +61,9 @@ A arquitetura oficial é um monólito Laravel utilizando Blade + Livewire, execu
 19. Toda execução de IA deve ser assíncrona utilizando Redis, Horizon e Queue Workers.
 20. O modo Dark é o padrão oficial; o elemento <html> deve iniciar sempre com class="dark".
 21. A fonte oficial do sistema é Inter; nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
+22. `is_admin` é um boolean na tabela `users`, não uma tabela separada. Reavaliar apenas via ADR se o sistema crescer para múltiplos funcionários com hierarquia de permissões.
+23. Rotas `/admin/*` nunca compartilham Controllers com rotas de Web ou de Api. Sempre em `App\Http\Controllers\Admin`.
+24. Toda ação administrativa que altera dados de um usuário (créditos, plano, status de conta) deve ser registrada em `admin_action_logs` antes de retornar sucesso ao admin.
 
 ## 4. Estrutura de Diretórios
 

@@ -281,9 +281,33 @@ Motivo: risco de contaminação dos ambientes de homologação e produção.
 | Escopo obrigatório por `project_id` | Dados globais | Sim |
 | Modo Dark como padrão | Light como padrão | Sim |
 | Fonte oficial Inter | Troca de tipografia sem ADR | Sim |
+| `is_admin` boolean em `users` | Tabela de papéis / RBAC | Sim |
+| Controllers administrativos isolados em `Admin` | Reuso de Controllers Web ou Api | Sim |
+| Auditoria obrigatória em `admin_action_logs` | Ação administrativa sem rastro | Sim |
 
 ---
-## Regra Final
+
+# 5. Regras Invioláveis do Painel Administrativo
+
+Aplicáveis a partir do Mês 4. Ver `SAD.md`, Seção 14 — Painel Administrativo.
+
+1. `is_admin` é um boolean na tabela `users`, não uma tabela separada. Reavaliar apenas via ADR se o sistema crescer para múltiplos funcionários com hierarquia de permissões.
+2. Rotas `/admin/*` nunca compartilham Controllers com rotas de Web ou de Api. Sempre em `App\Http\Controllers\Admin`.
+3. Toda ação administrativa que altera dados de um usuário (créditos, plano, status de conta) deve ser registrada em `admin_action_logs` antes de retornar sucesso ao admin.
+
+## Checklist de Pull Request — Painel Administrativo
+
+- [ ] A rota está sob o middleware `EnsureIsAdmin`.
+- [ ] O Controller reside em `App\Http\Controllers\Admin`.
+- [ ] Nenhum Controller de `Web` ou `Api` foi reutilizado.
+- [ ] A ação de escrita chama `CreditService` ou `PlanService`; nenhuma regra de negócio nova foi criada.
+- [ ] A ação foi registrada em `admin_action_logs` antes do retorno de sucesso.
+- [ ] O componente Livewire apenas apresenta dados e dispara ações.
+- [ ] O acesso de um usuário sem `is_admin` foi testado e retorna 403.
+
+---
+
+# Regra Final
 
 Sempre que houver dúvida durante a geração de código:
 

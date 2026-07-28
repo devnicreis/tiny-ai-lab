@@ -2681,3 +2681,393 @@ Após a conclusão desta fase, o projeto estará apto para iniciar o **Mês 2 �
 - início dos primeiros fluxos de geração de conteúdo do Tiny AI Lab.
 
 Nenhuma dessas funcionalidades deve ser iniciada antes da aprovação integral desta fase.
+
+---
+
+# MÊS 4 — MONETIZAÇÃO, ADMINISTRAÇÃO E DISTRIBUIÇÃO
+
+> **Nota de numeração:** as fases do Mês 4 utilizam numeração escopada ao mês (`Fase 4.1`, `Fase 4.2`, `Fase 4.3`).
+> Não confundir com a **FASE 4 — CRUD de Projects**, pertencente ao Mês 1.
+
+## Ordem Oficial das Fases do Mês 4
+
+| Ordem | Fase | Especificação |
+|-------|------|---------------|
+| 1 | Fase 4.1 — Stripe, Cashier e `CheckSubscription` | A detalhar em sessão própria |
+| 2 | **Fase 4.2 — Admin Panel** | **Especificada abaixo** |
+| 3 | Fase 4.3 — PWA | A detalhar em sessão própria (ver `SAD.md`, Seção 15) |
+
+Os Meses 2 e 3 e as Fases 4.1 e 4.3 serão detalhados em sessões próprias. Nenhuma fase deve ser antecipada.
+
+---
+
+# Fase 4.2 — Admin Panel
+
+Objetivo desta fase:
+
+Implementar a interface interna de operação do Tiny AI Lab, permitindo suporte, inspeção de contas e ajuste manual de créditos dentro do domínio Laravel — sujeitos a Policies, Services e auditoria — eliminando a necessidade de qualquer alteração manual em banco de produção.
+
+Referência arquitetural: `SAD.md`, **Seção 14 — Painel Administrativo**.
+
+---
+
+## Dependências
+
+Esta fase não pode ser iniciada antes de:
+
+- **Fase 4.1** concluída — `CheckSubscription`, Cashier e `PlanService` operacionais;
+- módulo de **Executions** concluído (Mês 2);
+- **`CreditService`** implementado e validado.
+
+O Admin Panel é exclusivamente um consumidor dessas camadas. Nenhuma regra de negócio nova deve ser criada nesta fase.
+
+---
+
+# Ordem Oficial de Implementação
+
+Seguir rigorosamente a sequência abaixo.
+
+---
+
+## 4.2.1 Migration — `add_is_admin_to_users_table`
+
+### Arquivo
+
+```
+database/migrations/xxxx_xx_xx_xxxxxx_add_is_admin_to_users_table.php
+```
+
+### Objetivo
+
+Adicionar o marcador de administrador à tabela `users`.
+
+### Colunas obrigatórias
+
+| Coluna | Tipo | Regra |
+|--------|------|-------|
+| `is_admin` | `boolean` | `default(false)`, `NOT NULL` |
+
+### Regras obrigatórias
+
+- Migration **incremental**. Nunca alterar a migration original `create_users_table` — conforme `SAD.md`, Apêndice K.7, migrations já executadas jamais são editadas.
+- Nomenclatura obrigatória `add_is_admin_to_users_table`, conforme Apêndice K.7.
+- A migration deve ser reversível (`down()` removendo a coluna).
+- A migration **não** popula dados. A atribuição de `is_admin` é manual e não pertence a Seeders de produção.
+
+---
+
+## 4.2.2 Migration — `create_admin_action_logs_table`
+
+### Arquivo
+
+```
+database/migrations/xxxx_xx_xx_xxxxxx_create_admin_action_logs_table.php
+```
+
+### Objetivo
+
+Registrar de forma permanente toda ação administrativa que altere dados de um usuário.
+
+### Colunas obrigatórias
+
+| Coluna | Tipo | Regra |
+|--------|------|-------|
+| `id` | `bigIncrements` | Padrão Laravel |
+| `admin_id` | FK → `users.id` | `restrictOnDelete()` — o log sobrevive ao usuário |
+| `action` | `string` | Identificador da ação executada |
+| `target_type` | `string` | Entidade afetada |
+| `target_id` | `unsignedBigInteger` | Identificador da entidade afetada |
+| `payload` | `jsonb` | Contexto da ação (antes/depois, motivo) |
+| `created_at` / `updated_at` | `timestamps` | Padrão Laravel |
+
+### Índices obrigatórios
+
+- `admin_id`
+- `(target_type, target_id)` — índice composto
+- `created_at`
+
+### Regras obrigatórias
+
+- **Sem SoftDeletes.** Logs de auditoria são permanentes e não possuem rotina de expurgo.
+- Utilizar `jsonb()` no campo `payload`. Nunca `json()`.
+- O par `target_type` / `target_id` é uma referência polimórfica manual e **não** possui Foreign Key: o alvo pode ser um `User`, uma `Subscription` ou uma `Execution`.
+- A Foreign Key `admin_id` deve possuir política explícita `restrictOnDelete()`.
+- O `payload` nunca deve conter segredos, tokens ou dados de cartão.
+
+---
+
+## 4.2.3 Model — `AdminActionLog`
+
+### Arquivo
+
+```
+app/Models/AdminActionLog.php
+```
+
+### Fillable obrigatório
+
+- `admin_id`
+- `action`
+- `target_type`
+- `target_id`
+- `payload`
+
+### Casts obrigatórios
+
+- `payload` → `array`
+
+### Relacionamentos
+
+- `admin()` → `belongsTo(User::class, 'admin_id')`
+
+### Regras obrigatórias
+
+- Declarar `$fillable` explicitamente. Nunca utilizar `$guarded = []`.
+- Nenhuma regra de negócio no Model.
+- Não utilizar `SoftDeletes`.
+
+---
+
+## 4.2.4 Gate — `access-admin`
+
+### Arquivo
+
+```
+app/Providers/AppServiceProvider.php
+```
+
+### Responsabilidade
+
+Centralizar em um único ponto a definição de quem é administrador.
+
+### Implementação esperada
+
+```php
+Gate::define('access-admin', fn (User $user) => $user->is_admin);
+```
+
+### Regras obrigatórias
+
+- O Gate é a **única** fonte de verdade da autorização administrativa.
+- Nunca verificar `$user->is_admin` inline em Controllers, Livewire ou Blade. Sempre através do Gate ou do middleware.
+- Nenhuma lista de e-mails ou IDs hardcoded.
+
+---
+
+## 4.2.5 Middleware — `EnsureIsAdmin`
+
+### Arquivo
+
+```
+app/Http/Middleware/EnsureIsAdmin.php
+```
+
+### Responsabilidade
+
+Aplicar o Gate `access-admin` a todas as rotas `/admin/*`.
+
+### Fluxo esperado
+
+1. O usuário já foi autenticado por `VerifyFirebaseToken`.
+2. Avaliar o Gate `access-admin`.
+3. Em caso de falha, retornar **403 JSON**.
+4. Em caso de sucesso, seguir para o Controller.
+
+### Regras obrigatórias
+
+- Executar sempre **após** `VerifyFirebaseToken`. O Admin Panel não substitui a autenticação Firebase.
+- A resposta de negação deve ser JSON com status `403`, sem revelar a existência do recurso solicitado.
+- Registrar o middleware com o alias `admin` em `bootstrap/app.php`.
+- Nenhuma rota administrativa pode existir sem este middleware.
+
+---
+
+## 4.2.6 Service — `LogsAdminActions`
+
+### Arquivo
+
+```
+app/Services/Admin/LogsAdminActions.php
+```
+
+### Responsabilidade
+
+Persistir o registro em `admin_action_logs`.
+
+### Regras obrigatórias
+
+- Toda ação administrativa que altera dados de um usuário deve invocar este Service **antes** de retornar sucesso ao administrador.
+- A gravação do log e a alteração do dado devem ocorrer dentro da mesma transação: se o log falhar, a alteração é revertida.
+- Nenhum componente Livewire grava diretamente em `AdminActionLog`.
+- O Service não decide *se* deve registrar — ele sempre registra. A decisão pertence à ação que o chama.
+
+---
+
+## 4.2.7 Controllers Administrativos
+
+### Diretório
+
+```
+app/Http/Controllers/Admin/
+```
+
+### Regras obrigatórias
+
+- Namespace **isolado**: `App\Http\Controllers\Admin`.
+- Nunca reutilizar, estender ou compartilhar Controllers de `Controllers/Web` ou `Controllers/Api`.
+- Nunca reutilizar Form Requests de `Web` ou `Api`; Requests administrativos residem em `app/Http/Requests/Admin/`.
+- Controller contém apenas orquestração: recebe o Request, delega ao Service e retorna a Response.
+- Toda validação em Form Requests. Nunca validar no Controller.
+
+---
+
+## 4.2.8 Componentes Livewire
+
+### Diretório
+
+```
+app/Livewire/Admin/
+```
+
+### Componentes obrigatórios
+
+| Componente | Responsabilidade |
+|------------|------------------|
+| `Admin/UserList` | Listagem paginada e busca de usuários |
+| `Admin/UserDetail` | Inspeção de conta: plano, assinatura, saldo e execuções |
+| `Admin/CreditAdjustment` | Ajuste manual de créditos |
+
+### Regras obrigatórias
+
+- **Nenhuma lógica de negócio nova.** Os componentes reaproveitam `CreditService` e `PlanService` já existentes.
+- Nenhum componente calcula, credita ou debita saldo por conta própria.
+- Nenhum custo de crédito hardcoded; toda leitura vem de `plan_limits`.
+- `Admin/UserList` deve paginar e utilizar `select()` explícito. Nunca `User::all()`.
+- Nenhuma listagem pode carregar `executions.result`.
+- `Admin/CreditAdjustment` deve exigir um motivo textual obrigatório, persistido no `payload` do log.
+- Os componentes apenas apresentam dados e disparam ações.
+
+---
+
+## 4.2.9 Rotas
+
+### Regras obrigatórias
+
+- Todas as rotas sob o prefixo `/admin`.
+- Grupo protegido por `VerifyFirebaseToken` + `EnsureIsAdmin`, nesta ordem.
+- Nenhuma rota administrativa fora deste grupo.
+- Nenhuma rota administrativa compartilha Controller com `Web` ou `Api`.
+
+---
+
+## 4.2.10 Testes
+
+### Arquivo
+
+```
+tests/Feature/AdminTest.php
+```
+
+### Casos obrigatórios
+
+- Usuário sem `is_admin` recebe **403** em qualquer rota `/admin/*`.
+- Usuário não autenticado recebe **401**, nunca 403.
+- Usuário com `is_admin` acessa o painel com sucesso.
+- Ajuste manual de créditos altera o saldo através do `CreditService`.
+- Ajuste manual de créditos grava o registro correspondente em `admin_action_logs`.
+- Falha na gravação do log reverte a alteração de saldo.
+- `Admin/UserList` não carrega `executions.result`.
+
+---
+
+## Regras Obrigatórias da Fase 4.2
+
+- `is_admin` é um boolean em `users`; nunca criar tabela de papéis ou pacote de RBAC.
+- Toda autorização administrativa passa pelo Gate `access-admin`.
+- Rotas `/admin/*` nunca compartilham Controllers com `Web` ou `Api`.
+- Toda ação que altera dados de um usuário é registrada em `admin_action_logs` antes do retorno de sucesso.
+- Nenhuma regra de negócio nova: reaproveitar `CreditService` e `PlanService`.
+- `admin_action_logs` não utiliza SoftDeletes.
+- `payload` sempre `jsonb`.
+- Nenhum Seeder de produção atribui `is_admin`.
+
+---
+
+## Fluxo Oficial de uma Ação Administrativa
+
+```text
+Request /admin/*
+
+    │
+
+    ▼
+
+VerifyFirebaseToken
+
+    │
+
+    ▼
+
+EnsureIsAdmin (Gate access-admin)
+
+    │
+
+    ▼
+
+Form Request (App\Http\Requests\Admin)
+
+    │
+
+    ▼
+
+Admin Controller
+
+    │
+
+    ▼
+
+CreditService / PlanService
+
+    │
+
+    ▼
+
+LogsAdminActions  →  admin_action_logs
+
+    │
+
+    ▼
+
+Response (sucesso somente após o log)
+```
+
+---
+
+# Critério de Conclusão da Fase 4.2
+
+A Fase 4.2 somente estará concluída quando:
+
+- [ ] Migration `add_is_admin_to_users_table` criada e executada.
+- [ ] Migration `create_admin_action_logs_table` criada e executada.
+- [ ] Model `AdminActionLog` implementado.
+- [ ] Gate `access-admin` definido no `AppServiceProvider`.
+- [ ] Middleware `EnsureIsAdmin` implementado e registrado.
+- [ ] Service `LogsAdminActions` implementado.
+- [ ] Controllers criados em `App\Http\Controllers\Admin`.
+- [ ] `Admin/UserList`, `Admin/UserDetail` e `Admin/CreditAdjustment` implementados.
+- [ ] Nenhuma regra de negócio nova introduzida.
+- [ ] Rotas `/admin/*` protegidas pelo middleware.
+- [ ] `AdminTest.php` criado.
+- [ ] Todos os testes passando.
+
+---
+
+# Checklist Oficial de Conclusão do Mês 4
+
+- [ ] Assinaturas Stripe operacionais via Cashier.
+- [ ] Middleware `CheckSubscription` validando assinatura ativa.
+- [ ] **Admin panel operacional com CRUD de usuários e ajuste manual de créditos, todas as ações auditadas em `admin_action_logs`.**
+- [ ] PWA instalável em dispositivos compatíveis.
+- [ ] Todos os testes automatizados passando.
+- [ ] Nenhuma violação registrada no `PROJECT_RULES.md`.
+- [ ] Nenhuma decisão arquitetural pendente marcada como `[A DEFINIR]` nos módulos entregues.
