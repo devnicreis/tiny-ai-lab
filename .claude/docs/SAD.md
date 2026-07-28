@@ -4036,6 +4036,51 @@ Nunca transmitir um evento antes que a atualização tenha sido persistida.
 
 ---
 
+# 9.12 Registro de Implementação — Canal e Payloads
+
+## Canal Oficial
+
+A lacuna **[A DEFINIR]** da Seção 9.4 foi resolvida na implementação: o canal oficial é
+
+```
+private-execution.{executionId}
+```
+
+autorizado em `routes/channels.php` pela posse da Execution (`$user->executions()`). O canal `private-App.Models.User.{id}` permanece reservado às notificações broadcast do usuário.
+
+---
+
+## Divergência de Payload — Pendente de ADR
+
+Os eventos implementados em `app/Events/` divergem dos payloads descritos nas Seções 9.6 e 9.7:
+
+| Evento | Payload documentado (9.6 / 9.7) | Payload implementado |
+|--------|----------------------------------|----------------------|
+| `ExecutionUpdated` | `execution_id`, `status`, `pipeline_type`, `updated_at` | `id`, `status`, `completed_at` |
+| `ExecutionFailed` | `execution_id`, `status`, `pipeline_type` | `id`, `error_message`, `failed_at` |
+
+A divergência é de **nomenclatura e granularidade**, não de princípio: nenhum dos dois payloads transporta `result`, `config`, prompts ou qualquer conteúdo JSONB, de modo que a Regra Crítica da Seção 9 e a regra 12 da `CLAUDE.md` permanecem íntegras.
+
+Pontos que uma futura ADR precisa fixar:
+
+- se a chave é `execution_id` ou `id`;
+- se `pipeline_type` deve trafegar no payload ou ser lido pelo componente Livewire, que já conhece a Execution que está observando;
+- se `ExecutionFailed` pode transportar `error_message`, considerando que a Seção 6 exige preservar diagnóstico **sem expor dados sensíveis ao usuário** — hoje o campo é a mensagem já tratada em `executions.error_message`, nunca o erro bruto devolvido pelo n8n.
+
+Até a aprovação da ADR, o formato implementado é o vigente e está coberto por `tests/Feature/ExecutionTest.php`.
+
+---
+
+# 9.13 Registro de Implementação — Segredo Compartilhado no Despacho
+
+O `App\Services\N8nService` envia o segredo compartilhado **exclusivamente** no header `X-N8N-Secret`, conforme a Seção 7.5, e nunca no corpo do payload da Seção 7.3.
+
+Motivo: o corpo da requisição é persistido pelo n8n no histórico de execução do workflow. Replicar o segredo no payload o transformaria em dado armazenado no Droplet 2, enfraquecendo o único mecanismo de autenticação entre os dois serviços sem nenhum ganho — o n8n já valida o header antes de iniciar o workflow.
+
+Pelo mesmo motivo, nem o segredo nem a URL do webhook podem chegar ao log: `N8nConnectionException` não encadeia a exception original do cliente HTTP (cuja mensagem contém a URL completa do Droplet 2) e registra apenas `execution_id`, status HTTP e a classe do erro de transporte.
+
+---
+
 # 10. Design System e Frontend
 
 ## 10.1 Visão Geral

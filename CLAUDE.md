@@ -148,8 +148,7 @@ app/
     ├── Firebase/
     │   └── FirebaseService.php
     │
-    ├── N8n/
-    │   └── N8nService.php
+    ├── N8nService.php
     │
     ├── Billing/
     │

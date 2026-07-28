@@ -35,4 +35,21 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | n8n — Motor Externo de Orquestração de IA
+    |--------------------------------------------------------------------------
+    |
+    | Endereço privado (VPC) do webhook de entrada do n8n e o segredo
+    | compartilhado usado nos headers `X-N8N-Secret` de ida e de callback
+    | (SAD 7.5). Nenhum dos dois pode ser hardcoded no domínio nem registrado
+    | em log.
+    |
+    */
+
+    'n8n' => [
+        'url' => env('N8N_WEBHOOK_URL'),
+        'secret' => env('N8N_SHARED_SECRET'),
+    ],
+
 ];
