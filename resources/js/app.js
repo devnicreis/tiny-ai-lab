@@ -1,3 +1,6 @@
+import './firebase';
+import './echo';
+
 import Alpine from 'alpinejs';
 import focus from '@alpinejs/focus';
 import intersect from '@alpinejs/intersect';

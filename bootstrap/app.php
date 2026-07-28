@@ -13,6 +13,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // A rota /broadcasting/auth não usa sessão: a identidade vem do Firebase
+    // ID Token, exatamente como nas demais rotas protegidas (SAD 9.5).
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        ['middleware' => ['auth.firebase']],
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'auth.firebase' => VerifyFirebaseToken::class,

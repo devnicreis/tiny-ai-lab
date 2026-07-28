@@ -20,6 +20,8 @@ class ExecutionFactory extends Factory
     {
         return [
             'project_id' => Project::factory(),
+            // O dono da Execution é sempre o dono da Brand.
+            'user_id' => fn (array $attributes) => Project::find($attributes['project_id'])?->user_id,
             'pipeline_type' => fake()->randomElement([
                 'brand_research',
                 'briefing_generation',
