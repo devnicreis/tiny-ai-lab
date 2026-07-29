@@ -24,6 +24,7 @@ class User extends Authenticatable
         'firebase_uid',
         'plan',
         'credits_balance',
+        'credits_used_this_month',
         'has_completed_setup',
         'notify_on_completion',
     ];

@@ -13,12 +13,12 @@ class PlanLimit extends Model
         'credits',
     ];
 
-    public static function forAction(string $action): int
+    public static function forAction(string $action): ?int
     {
         return Cache::remember(
             "plan_limits:{$action}",
             now()->addMinutes(60),
-            fn () => static::where('action', $action)->value('credits') ?? 0
+            fn () => static::where('action', $action)->value('credits')
         );
     }
 }

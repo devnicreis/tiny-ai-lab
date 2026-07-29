@@ -1,10 +1,13 @@
 <?php
 
+use App\Exceptions\InsufficientCreditsException;
+use App\Exceptions\N8nConnectionException;
 use App\Http\Middleware\VerifyFirebaseToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -28,4 +31,30 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
+
+        // A falha de comunicação com o n8n é registrada com contexto mínimo e
+        // controlado: a URL do webhook e o segredo compartilhado nunca podem
+        // chegar ao log. O `false` interrompe o report padrão, que imprimiria o
+        // trace completo. Sentry substituirá este canal futuramente.
+        $exceptions->report(function (N8nConnectionException $e): bool {
+            Log::error($e->getMessage(), $e->context());
+
+            return false;
+        });
+
+        // Saldo insuficiente é decisão de negócio, não erro de aplicação:
+        // responde 402 com a CTA "Buy AI Credits" (SAD 12.7 e L.6).
+        $exceptions->render(function (InsufficientCreditsException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => 'Créditos insuficientes para executar esta ação.',
+                'error' => 'insufficient_credits',
+                'required' => $e->required,
+                'available' => $e->available,
+                'cta' => 'Buy AI Credits',
+            ], 402);
+        });
     })->create();

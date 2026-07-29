@@ -5610,6 +5610,13 @@ com possibilidade de cache em Redis.
 
 > ⚠️ **Regra crítica:** Nunca hardcode valores de créditos por ação. Todo custo deve ser consultado na tabela `plan_limits` (preferencialmente via cache Redis), garantindo que alterações comerciais possam ser realizadas sem mudanças no código da aplicação.
 
+---
+
+# 12.10 Registro de Implementação — Pendências do CreditService
+
+- **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar).
+- **`PlanLimit::forAction()` ignora o plano do usuário** — busca o primeiro registro da action, sem escopar por `plan`. Corrigir quando houver precificação diferenciada por plano: mudará a chave de cache de `plan_limits:{action}` para `plan_limits:{plan}:{action}` e exigirá ADR antes da implementação.
+
 
 # 13. Integrações Externas
 

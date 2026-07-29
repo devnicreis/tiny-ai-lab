@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use App\Models\Project;
 use App\Policies\ProjectPolicy;
+use App\Services\CreditService;
 use App\Services\FirebaseService;
+use App\Services\N8nService;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -16,6 +18,12 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(FirebaseService::class);
+
+        // Stateless: apenas transporta Executions até o webhook do n8n.
+        $this->app->singleton(N8nService::class);
+
+        // Stateless: todo estado vive em plan_limits e em users.credits_balance.
+        $this->app->singleton(CreditService::class);
     }
 
     /**
