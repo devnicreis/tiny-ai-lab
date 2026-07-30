@@ -2,15 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Exceptions\InsufficientCreditsException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Execution\IndexExecutionRequest;
 use App\Http\Requests\Execution\StoreBriefingRequest;
-use App\Jobs\ProcessBriefingJob;
 use App\Models\Execution;
-use App\Services\CreditService;
+use App\Services\ExecutionService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -62,40 +59,18 @@ class ExecutionController extends Controller
     /**
      * Cria a Execution, debita o crédito e enfileira o pipeline.
      *
-     * O débito e a criação compartilham uma transação porque a corrida entre
-     * duas requisições simultâneas só é resolvida dentro de `deduct()`, sob
-     * lock: se o saldo real não cobrir o custo, a Execution criada instantes
-     * antes precisa desaparecer junto — SAD 12.7 exige que saldo insuficiente
-     * não deixe execução nenhuma para trás.
-     *
-     * O Job é despachado apenas após o commit: um Worker que lesse a Execution
-     * antes dela existir no banco falharia em `findOrFail`.
+     * Toda a regra — autorização, verificação de saldo, transação de débito e
+     * despacho do Job — pertence ao ExecutionService, compartilhado com o
+     * BriefingForm: o Controller apenas traduz o resultado em HTTP.
      */
-    public function store(StoreBriefingRequest $request, CreditService $credits): JsonResponse
+    public function store(StoreBriefingRequest $request, ExecutionService $executions): JsonResponse
     {
-        $user = $request->user();
-        $pipeline = (string) $request->validated('pipeline_type');
-
-        if (! $credits->canExecute($user, $pipeline)) {
-            throw InsufficientCreditsException::for($user, $pipeline, $credits->costFor($pipeline));
-        }
-
-        $execution = DB::transaction(function () use ($request, $credits, $user, $pipeline): Execution {
-            $execution = Execution::create([
-                'project_id' => $request->brand()->id,
-                'user_id' => $user->id,
-                'pipeline_type' => $pipeline,
-                'status' => 'queued',
-                'config' => $request->config(),
-                'credits_consumed' => $credits->costFor($pipeline),
-            ]);
-
-            $credits->deduct($user, $pipeline);
-
-            return $execution;
-        });
-
-        ProcessBriefingJob::dispatch($execution->id);
+        $execution = $executions->create(
+            user: $request->user(),
+            brand: $request->brand(),
+            pipeline: (string) $request->validated('pipeline_type'),
+            config: $request->config(),
+        );
 
         return response()->json([
             'execution_id' => $execution->id,

@@ -151,7 +151,11 @@
             </header>
 
             <main class="flex-1 overflow-y-auto bg-app-bg p-6">
+                {{-- O shell atende às duas formas de uso: `$slot` para quem o
+                     consome como componente/layout Livewire e `@yield` para as
+                     páginas de resources/views/pages que fazem @extends. --}}
                 {{ $slot ?? '' }}
+                @yield('content')
             </main>
         </div>
     </div>

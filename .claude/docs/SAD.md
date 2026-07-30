@@ -9442,13 +9442,21 @@ Nunca criar nomes arbitrários.
 
 ## Polling
 
-Caso Reverb esteja indisponível:
+Caso Reverb esteja indisponível, o polling é declarado **na view**, no elemento raiz do componente:
 
-```php
-#[Polling(3000)]
+```blade
+<div wire:poll.3s="refreshStatus">
 ```
 
 A documentação oficial do projeto prevê polling apenas como mecanismo de fallback.
+
+> **Nota — não existe `#[Polling]` no Livewire 3.** Versões anteriores deste apêndice indicavam `#[Polling(3000)]`; esse atributo não faz parte da API do Livewire 3 e nunca teve efeito. O mecanismo oficial é `wire:poll` na view, opcionalmente com intervalo (`wire:poll.3s`) e com o método a ser chamado a cada ciclo (`wire:poll.3s="refreshStatus"`). Sem método, o Livewire apenas re-renderiza o componente.
+
+O polling deve ser desligado assim que o estado se tornar final — nada mais vai mudar depois de `completed` ou `failed`:
+
+```blade
+<div @if (! $this->isTerminal()) wire:poll.5s="refreshStatus" @endif>
+```
 
 ---
 
