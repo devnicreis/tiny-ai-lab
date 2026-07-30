@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\Execution;
 use App\Models\Project;
+use App\Policies\ExecutionPolicy;
 use App\Policies\ProjectPolicy;
 use App\Services\CreditService;
 use App\Services\FirebaseService;
@@ -32,5 +34,6 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Project::class, ProjectPolicy::class);
+        Gate::policy(Execution::class, ExecutionPolicy::class);
     }
 }

@@ -3367,6 +3367,74 @@ antes de qualquer processamento.
 
 ---
 
+# 7.11 Registro de Implementação — Callback do n8n
+
+Implementado em `App\Http\Controllers\Api\WebhookController`, protegido por `App\Http\Middleware\VerifyN8nSecret` (alias `verify.n8n`) e coberto por `tests/Feature/WebhookTest.php`.
+
+---
+
+## Idempotência — lacuna 7.8 resolvida
+
+A Seção 7.8 registra a estratégia de idempotência como **[A DEFINIR]**. A implementação adota a **rejeição silenciosa de callbacks para execuções já finalizadas**:
+
+- se `executions.status` já for `completed` ou `failed`, o payload é descartado, a tentativa é registrada em log e o n8n recebe `200` com `ignored: true`;
+- o `200` é deliberado: qualquer outro código faria o n8n reprocessar indefinidamente um callback que o Laravel já honrou.
+
+Motivo da escolha: um retry do n8n após um timeout de rede pode chegar com `result` vazio. Reaplicá-lo destruiria o resultado já persistido e reemitiria o broadcast, fazendo a interface piscar entre dois estados finais.
+
+A mesma proteção já existia em `ProcessBriefingJob` (`Execution::TERMINAL_STATUSES`), agora compartilhada como constante do Model.
+
+---
+
+## `credits_consumed` do payload é ignorado
+
+A Seção 7.4 lista `credits_consumed` entre os campos que o Laravel deve registrar. **A implementação diverge deliberadamente**: o valor chega no payload, é aceito pela validação e é descartado.
+
+Motivo: o débito ocorre na criação da Execution, a partir de `plan_limits` (Seção 12.5). Gravar o número devolvido pelo n8n colocaria o motor externo no controle da contabilidade do domínio, contra a regra 9 da `CLAUDE.md` e a Regra 4 da Seção 7.10 — e criaria divergência entre `executions.credits_consumed` e o saldo efetivamente debitado de `users.credits_balance`.
+
+`tokens_used`, ao contrário, é gravado do payload: o n8n é a única fonte possível dessa informação.
+
+---
+
+## `finished_at` e o objeto `error`
+
+| Campo do payload (7.4) | Destino na implementação |
+|------------------------|--------------------------|
+| `finished_at` | `executions.completed_at` ou `executions.failed_at`, conforme o status. Ausente ⇒ instante do callback |
+| `error.message` | `executions.error_message`, truncado em 500 caracteres |
+| `error` (objeto completo) | Log de auditoria — nunca o banco |
+
+O objeto `error` completo não é persistido porque não existe coluna de auditoria para ele e `result` é reservado à conclusão bem-sucedida (`CLAUDE.md` §6). A mensagem trafega no `ExecutionFailed` até a interface; por isso apenas o campo textual documentado no exemplo da Seção 7.4 é gravado, nunca a estrutura bruta devolvida pelas APIs externas.
+
+Falha sem `error.message` recebe mensagem genérica em português.
+
+---
+
+## Divergências de nomenclatura
+
+| `CLAUDE.md` §4 | Implementado | Motivo |
+|----------------|--------------|--------|
+| `VerifyN8nWebhook.php` | `VerifyN8nSecret.php` | Nome definido no prompt da sessão; descreve o que o middleware de fato compara |
+| `Requests/StoreBriefingRequest.php` | `Requests/Execution/StoreBriefingRequest.php` | A própria §4 prevê o subdiretório `Requests/Execution/`, e `Requests/Auth/` e `Requests/Project/` já seguem esse agrupamento |
+
+Ambas são divergências de nome/local, não de arquitetura. Uma ADR pode fixar o vocabulário definitivo.
+
+---
+
+## Form Request sem Policy
+
+`App\Http\Requests\Webhook\N8nResultRequest::authorize()` retorna `true`, contrariando a orientação da Seção L.4.
+
+É uma exceção consciente e única: o fluxo não possui usuário — o n8n nunca autentica ninguém (Regra 2 da Seção 7.10) — e não há sujeito sobre o qual uma Policy possa decidir. A autorização inteira do endpoint é o `hash_equals()` do middleware, executado antes da instanciação do Form Request. A validação permanece fora do Controller, que é o que a regra 5 da `CLAUDE.md` protege.
+
+---
+
+## Ausência de rate limiting
+
+`bootstrap/app.php` não chama `throttleApi()`, de modo que o grupo `api` inteiro roda sem `throttle`. A ausência é intencional e está coberta por teste: um limite por IP descartaria callbacks legítimos de pipelines já processados e já cobrados do usuário.
+
+---
+
 # 8. Arquitetura de Filas e Jobs
 
 ## 8.1 Visão Geral
@@ -5616,6 +5684,42 @@ com possibilidade de cache em Redis.
 
 - **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar).
 - **`PlanLimit::forAction()` ignora o plano do usuário** — busca o primeiro registro da action, sem escopar por `plan`. Corrigir quando houver precificação diferenciada por plano: mudará a chave de cache de `plan_limits:{action}` para `plan_limits:{plan}:{action}` e exigirá ADR antes da implementação.
+- **`plan_limits.credits` permanece NOT NULL no SQLite** — a migration que remove a restrição é exclusiva do PostgreSQL, de modo que `PlanLimitSeeder` (que grava `credits = null` para o plano enterprise) não pode ser executado na suíte de testes. Os testes que precisam de custo registram apenas a linha da action que exercitam.
+
+---
+
+# 12.11 Registro de Implementação — Momento do Débito
+
+As Seções 6.9 e 12.6 registram o momento exato do débito como **[A DEFINIR]**. A implementação em `App\Http\Controllers\Api\ExecutionController@store` adota o **débito na criação da Execution**, antes de qualquer contato com o n8n:
+
+```text
+canExecute()  →  transação { Execution::create(queued) + CreditService::deduct() }  →  commit  →  Job
+```
+
+Duas consequências desenham a escolha:
+
+- **A verificação otimista e o débito definitivo são etapas distintas.** `canExecute()` decide o fluxo (402 versus continuação); a garantia real vem do lock pessimista dentro de `deduct()`. Duas requisições simultâneas do mesmo usuário nunca gastam o mesmo crédito.
+- **Criação e débito compartilham uma transação.** Se o saldo real, lido sob lock, não cobrir o custo, a Execution criada instantes antes desaparece com o rollback — a Seção 12.7 exige que saldo insuficiente não deixe execução alguma para trás.
+
+O Job só é despachado após o commit: um Worker que lesse a Execution antes dela existir no banco falharia em `findOrFail`.
+
+**Não implementado:** política de estorno em caso de falha do pipeline. A Seção 6.2 registra o tema como **[A DEFINIR]**; hoje uma Execution que falha no n8n mantém o crédito debitado. Decidir antes do lançamento comercial.
+
+---
+
+# 12.12 Registro de Implementação — Escopo da Brand em Listagens
+
+O middleware `EnsureActiveProject` previsto na `CLAUDE.md` §4 ainda não existe, e não há mecanismo de sessão que fixe a Brand ativa do lado do servidor.
+
+Enquanto ele não centraliza esse contexto, `App\Http\Requests\Execution\IndexExecutionRequest` resolve a Brand de `GET /api/executions` assim:
+
+1. `project_id` da query string, quando informado — autorizado por `ProjectPolicy@view`, de modo que a Brand de outro usuário devolve 403;
+2. na ausência dele, a Brand marcada como ativa em `projects.is_active`;
+3. sem nenhuma das duas, 422 com mensagem em português.
+
+A consulta escopa simultaneamente por `user_id` e `project_id`, conforme a Seção 5.12 e a regra 10 da `CLAUDE.md`. Quando `EnsureActiveProject` for implementado, essa resolução migra para o middleware e o Form Request passa a apenas validar o filtro.
+
+`ExecutionPolicy@view`, por sua vez, verifica somente `user_id`: uma Execution de outra Brand do mesmo usuário continua sendo dele e não pode virar 403 ao ser aberta pelo link direto de `/result/{execution}`. O recorte por Brand permanece responsabilidade das consultas de listagem.
 
 
 # 13. Integrações Externas

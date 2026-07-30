@@ -3,6 +3,7 @@
 use App\Exceptions\InsufficientCreditsException;
 use App\Exceptions\N8nConnectionException;
 use App\Http\Middleware\VerifyFirebaseToken;
+use App\Http\Middleware\VerifyN8nSecret;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -25,7 +26,12 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'auth.firebase' => VerifyFirebaseToken::class,
+            'verify.n8n' => VerifyN8nSecret::class,
         ]);
+
+        // `throttleApi()` permanece deliberadamente ausente: o grupo `api` não
+        // pode carregar rate limiting por IP, sob pena de descartar callbacks
+        // legítimos do n8n (SAD 7 e CLAUDE.md §5).
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

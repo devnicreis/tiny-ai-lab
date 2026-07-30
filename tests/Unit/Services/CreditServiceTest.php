@@ -181,15 +181,14 @@ class CreditServiceTest extends TestCase
         $this->assertSame(self::COST, Cache::get('plan_limits:'.self::ACTION));
     }
 
-   /**
- * Usuários Enterprise (limite de créditos = null) nunca devem ser bloqueados.
- * Este teste verifica o comportamento usando uma subclasse anônima para
- * sobrescrever o método cost(), simulando um plano ilimitado.
- * Essa abordagem testa o comportamento real do serviço sem depender de mocks
- * estáticos do PlanLimit (que já foi carregado na memória pelo Laravel e
- * resiste ao Mockery::alias).
- */
-
+    /**
+     * Usuários Enterprise (limite de créditos = null) nunca devem ser bloqueados.
+     * Este teste verifica o comportamento usando uma subclasse anônima para
+     * sobrescrever o método cost(), simulando um plano ilimitado.
+     * Essa abordagem testa o comportamento real do serviço sem depender de mocks
+     * estáticos do PlanLimit (que já foi carregado na memória pelo Laravel e
+     * resiste ao Mockery::alias).
+     */
     public function test_enterprise_user_can_always_execute(): void
     {
         $service = new class extends CreditService
