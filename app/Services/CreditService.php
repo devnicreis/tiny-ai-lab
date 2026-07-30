@@ -94,6 +94,19 @@ class CreditService
         }
     }
 
+    /**
+     * Custo da ação a ser registrado em `executions.credits_consumed`.
+     *
+     * Exposto para que o Controller possa persistir a coluna NOT NULL sem
+     * conhecer nenhum valor de crédito (CLAUDE.md regra 9): a única fonte
+     * continua sendo `plan_limits`. Ausência de teto é gravada como `0`, pois a
+     * execução de fato não consumiu saldo algum.
+     */
+    public function costFor(string $action): int
+    {
+        return $this->cost($action) ?? 0;
+    }
+
     public function getRemainingBalance(User $user): int
     {
         return (int) $user->credits_balance;

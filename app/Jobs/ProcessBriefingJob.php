@@ -37,14 +37,6 @@ class ProcessBriefingJob implements ShouldQueue
     private const QUEUE = 'default';
 
     /**
-     * Estados finais: uma vez alcançados, apenas o callback do n8n os produziu
-     * e nenhuma tentativa posterior do Job pode sobrescrevê-los.
-     *
-     * @var array<int, string>
-     */
-    private const TERMINAL_STATUSES = ['completed', 'failed'];
-
-    /**
      * Mensagem exibida ao usuário quando o despacho não pôde ser concluído.
      *
      * Deliberadamente genérica: `error_message` trafega no broadcast e chega à
@@ -73,7 +65,7 @@ class ProcessBriefingJob implements ShouldQueue
     {
         $execution = Execution::query()->findOrFail($this->executionId);
 
-        if (in_array($execution->status, self::TERMINAL_STATUSES, true)) {
+        if (in_array($execution->status, Execution::TERMINAL_STATUSES, true)) {
             // O callback chegou antes desta tentativa — provável retry após uma
             // resposta de erro do n8n que, ainda assim, iniciou o workflow.
             Log::info('Execution already finalized, skipping dispatch', [
@@ -103,7 +95,7 @@ class ProcessBriefingJob implements ShouldQueue
 
         $execution = Execution::query()->find($this->executionId);
 
-        if ($execution === null || in_array($execution->status, self::TERMINAL_STATUSES, true)) {
+        if ($execution === null || in_array($execution->status, Execution::TERMINAL_STATUSES, true)) {
             // Sem Execution ou já finalizada pelo n8n: o diagnóstico do callback
             // é mais preciso que o desta camada e não deve ser sobrescrito.
             return;
