@@ -1,0 +1,264 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Jobs\ProcessBriefingJob;
+use App\Livewire\BriefingForm;
+use App\Livewire\ExecutionStatus;
+use App\Livewire\ResultDashboard;
+use App\Models\Execution;
+use App\Models\PlanLimit;
+use App\Models\Project;
+use App\Models\User;
+use App\Services\FirebaseService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use Livewire\Livewire;
+use Mockery\MockInterface;
+use Tests\TestCase;
+
+/**
+ * Contrato dos componentes Livewire do pipeline (SAD M).
+ *
+ * O que se prova aqui é a fronteira: os componentes exibem e submetem, mas o
+ * débito de crédito, o despacho do Job e o recorte por dono continuam sendo do
+ * backend.
+ */
+class LivewirePipelineTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const BRIEFING_COST = 5;
+
+    private function seedBriefingCost(int $credits = self::BRIEFING_COST): void
+    {
+        foreach (['free', 'pro', 'enterprise'] as $plan) {
+            PlanLimit::create([
+                'plan' => $plan,
+                'action' => 'briefing_generation',
+                'credits' => $credits,
+            ]);
+        }
+    }
+
+    private function userWithBrand(int $balance = 100): array
+    {
+        $user = User::factory()->create(['credits_balance' => $balance]);
+        $brand = Project::factory()->for($user)->create(['is_active' => true]);
+
+        return [$user, $brand];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function briefingInput(int $projectId): array
+    {
+        return [
+            'project_id' => $projectId,
+            'pipeline_type' => 'briefing_generation',
+            'objective' => 'Estruturar a campanha de lançamento do produto novo.',
+            'target_audience' => 'Gestores de marketing B2B',
+            'tone' => 'Consultivo',
+            'language' => 'pt-BR',
+            'notes' => '',
+        ];
+    }
+
+    public function test_briefing_form_creates_execution_debits_credits_and_queues_the_job(): void
+    {
+        Queue::fake();
+        $this->seedBriefingCost();
+
+        [$user, $brand] = $this->userWithBrand(balance: 40);
+
+        Livewire::actingAs($user)
+            ->test(BriefingForm::class)
+            ->set($this->briefingInput($brand->id))
+            ->call('submit')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('result', 1));
+
+        $execution = Execution::query()->sole();
+
+        $this->assertSame('queued', $execution->status);
+        $this->assertSame($brand->id, $execution->project_id);
+        $this->assertSame($user->id, $execution->user_id);
+        $this->assertSame(self::BRIEFING_COST, $execution->credits_consumed);
+        $this->assertSame(
+            'Estruturar a campanha de lançamento do produto novo.',
+            $execution->config['inputs']['objective'],
+        );
+
+        $this->assertSame(40 - self::BRIEFING_COST, $user->fresh()->credits_balance);
+
+        Queue::assertPushed(ProcessBriefingJob::class);
+    }
+
+    public function test_briefing_form_shows_upgrade_message_when_balance_is_insufficient(): void
+    {
+        Queue::fake();
+        $this->seedBriefingCost();
+
+        [$user, $brand] = $this->userWithBrand(balance: 1);
+
+        Livewire::actingAs($user)
+            ->test(BriefingForm::class)
+            ->set($this->briefingInput($brand->id))
+            ->call('submit')
+            ->assertHasNoErrors()
+            ->assertSet('upgradeMessage', fn (?string $message) => $message !== null
+                && str_contains($message, 'Créditos insuficientes'));
+
+        $this->assertDatabaseCount('executions', 0);
+        $this->assertSame(1, $user->fresh()->credits_balance);
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_briefing_form_rejects_a_brand_from_another_user(): void
+    {
+        Queue::fake();
+        $this->seedBriefingCost();
+
+        [$user] = $this->userWithBrand();
+        $foreignBrand = Project::factory()->create();
+
+        Livewire::actingAs($user)
+            ->test(BriefingForm::class)
+            ->set($this->briefingInput($foreignBrand->id))
+            ->call('submit')
+            ->assertHasErrors('project_id');
+
+        $this->assertDatabaseCount('executions', 0);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_execution_status_updates_from_the_broadcast_metadata_only(): void
+    {
+        [$user, $brand] = $this->userWithBrand();
+
+        $execution = Execution::factory()->for($brand)->create([
+            'user_id' => $user->id,
+            'status' => 'processing',
+            'pipeline_type' => 'briefing_generation',
+        ]);
+
+        Livewire::actingAs($user)
+            ->test(ExecutionStatus::class, ['executionId' => $execution->id])
+            ->assertSet('status', 'processing')
+            ->assertSet('pipelineType', 'briefing_generation')
+            ->call('onExecutionUpdated', ['status' => 'completed', 'execution_id' => $execution->id])
+            ->assertSet('status', 'completed')
+            ->assertDispatched('execution-finished', executionId: $execution->id);
+    }
+
+    public function test_execution_status_never_serves_an_execution_from_another_user(): void
+    {
+        [$user] = $this->userWithBrand();
+        $foreign = Execution::factory()->create(['status' => 'processing']);
+
+        $this->expectException(ModelNotFoundException::class);
+
+        Livewire::actingAs($user)->test(ExecutionStatus::class, ['executionId' => $foreign->id]);
+    }
+
+    public function test_result_dashboard_renders_the_result_sections(): void
+    {
+        [$user, $brand] = $this->userWithBrand();
+
+        $execution = Execution::factory()->for($brand)->create([
+            'user_id' => $user->id,
+            'status' => 'completed',
+            'result' => [
+                'diagnosis' => 'Marca com posicionamento difuso.',
+                'calendar' => [['day' => 1, 'theme' => 'Lançamento']],
+                'copies' => ['Copy de abertura'],
+                'scripts' => ['Roteiro do reels'],
+            ],
+            'completed_at' => now(),
+        ]);
+
+        Livewire::actingAs($user)
+            ->test(ResultDashboard::class, ['executionId' => $execution->id])
+            ->assertSee('diagnosis')
+            ->assertSee('Marca com posicionamento difuso.')
+            ->call('selectSection', 'copies')
+            ->assertSet('activeSection', 'copies')
+            ->assertSee('Copy de abertura');
+    }
+
+    public function test_briefing_page_renders_the_form_inside_the_app_shell(): void
+    {
+        [$user] = $this->userWithBrand();
+
+        $this->get('/briefing', $this->firebaseHeaders($user))
+            ->assertOk()
+            ->assertSee('Novo Briefing')
+            ->assertSee('Tiny AI Lab');
+    }
+
+    public function test_result_page_renders_status_and_lazy_result_for_the_owner(): void
+    {
+        [$user, $brand] = $this->userWithBrand();
+
+        $execution = Execution::factory()->for($brand)->create([
+            'user_id' => $user->id,
+            'status' => 'processing',
+        ]);
+
+        $response = $this->get('/result/'.$execution->id, $this->firebaseHeaders($user));
+
+        $response->assertOk()->assertSee('Execução #'.$execution->id);
+
+        // O `result` é lazy: nada do JSONB pode aparecer na resposta inicial
+        // (SAD M.9). O placeholder é o que ocupa a área.
+        $response->assertDontSee('diagnosis');
+    }
+
+    public function test_result_page_is_denied_to_a_non_owner(): void
+    {
+        [$user] = $this->userWithBrand();
+        $foreign = Execution::factory()->create();
+
+        $this->get('/result/'.$foreign->id, $this->firebaseHeaders($user))
+            ->assertForbidden();
+    }
+
+    /**
+     * Autentica a requisição web como o usuário informado, mockando o Firebase
+     * para devolver claims correspondentes ao seu `firebase_uid`.
+     *
+     * @return array<string, string>
+     */
+    private function firebaseHeaders(User $user): array
+    {
+        $this->mock(FirebaseService::class, function (MockInterface $mock) use ($user) {
+            $mock->shouldReceive('verifyIdToken')->andReturn([
+                'sub' => $user->firebase_uid,
+                'email' => $user->email,
+                'name' => $user->name,
+                'email_verified' => true,
+            ]);
+        });
+
+        return ['Authorization' => 'Bearer valid-id-token'];
+    }
+
+    public function test_result_dashboard_holds_no_result_while_the_execution_is_not_completed(): void
+    {
+        [$user, $brand] = $this->userWithBrand();
+
+        $execution = Execution::factory()->for($brand)->create([
+            'user_id' => $user->id,
+            'status' => 'processing',
+            'result' => null,
+        ]);
+
+        Livewire::actingAs($user)
+            ->test(ResultDashboard::class, ['executionId' => $execution->id])
+            ->assertSet('activeSection', '')
+            ->assertSee('quando a execução for concluída');
+    }
+}

@@ -226,7 +226,7 @@ tests/
 | PUT | /api/projects/{project} | ProjectController@update | VerifyFirebaseToken + ProjectPolicy | Atualiza informações da Brand. |
 | PATCH | /api/projects/{project} | ProjectController@update | VerifyFirebaseToken + ProjectPolicy | Atualização parcial da Brand. |
 | DELETE | /api/projects/{project} | ProjectController@destroy | VerifyFirebaseToken + ProjectPolicy | Remove a Brand conforme políticas de domínio. |
-| POST | /api/executions | ExecutionController@store | VerifyFirebaseToken + CheckSubscription + EnsureCreditBalance | Cria uma Execution, desconta créditos, grava status `queued` e despacha o Job para a fila. |
+| POST | /api/executions | ExecutionController@store | VerifyFirebaseToken (verificação de créditos via InsufficientCreditsException (ExecutionService); CheckSubscription pendente até Mês 4/Cashier) | Cria uma Execution, desconta créditos, grava status `queued` e despacha o Job para a fila. |
 | GET | /api/executions/{execution} | ExecutionController@show | VerifyFirebaseToken + ExecutionPolicy | Retorna os detalhes completos de uma Execution. |
 | GET | /api/dashboard/health | DashboardController@health | VerifyFirebaseToken | Retorna métricas de saúde da plataforma e das integrações. |
 | POST | /api/webhook/n8n/result | WebhookController@result | VerifyN8nWebhook | Endpoint exclusivo para callback do n8n. Atualiza status da Execution, persiste o JSONB retornado e dispara o evento `ExecutionUpdated`. |
