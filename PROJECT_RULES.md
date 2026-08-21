@@ -1,6 +1,6 @@
 # PROJECT_RULES.md
 
-> Checklist operacional de arquitetura do Tiny AI Lab.
+> Checklist operacional de arquitetura do Arkion.
 > Este documento deve ser utilizado como contexto adicional do Codex sempre que houver geração de código.
 > Nenhuma regra abaixo pode ser flexibilizada sem aprovação por ADR.
 
@@ -98,6 +98,31 @@ Antes de aceitar qualquer código gerado pelo Codex, verificar obrigatoriamente:
 
 - [ ] Eventos não enviam JSON completo da Execution.
 - [ ] Apenas metadados são transmitidos.
+
+## Design System e Idioma
+
+- [ ] Todo texto de cliente final está em inglês.
+- [ ] Nenhum token de cor antigo (`#111111`, `#FF5500`, `#E64D00`, escala `orange.*`) foi utilizado.
+- [ ] Apenas os tokens da Seção 10.4 do `SAD.md` foram utilizados.
+- [ ] Títulos `H1`–`H5` usam `font-serif` (Newsreader); corpo e UI usam `font-sans` (Inter).
+- [ ] Ícones SVG usam `stroke="currentColor" stroke-width="0.3"` e `w-5 h-5` ou `w-4 h-4`.
+- [ ] Toda superfície usa o par light/dark da Seção 10.4 (`bg-gray-50` / `dark:bg-[#121214]`, `bg-white` / `dark:bg-[#1c1c1c]`, `border-gray-200` / `dark:border-[#6b4e3a]/30`).
+- [ ] O hover do CTA primário usa `hover:brightness-90`, nunca um novo hexadecimal.
+- [ ] O tema escuro é aplicado apenas por `dark:`; o `<html>` não inicia com a classe `dark`.
+
+## Créditos
+
+- [ ] `plan_credits_balance` e `purchased_credits_balance` permanecem colunas separadas.
+- [ ] O débito consome o saldo do plano antes do saldo comprado.
+- [ ] A renovação mensal **atribui** `plan_credits_balance` e nunca o incrementa.
+- [ ] `purchased_credits_balance` não é zerado por nenhuma rotina de ciclo.
+- [ ] Pipeline fora do plano retorna 403; saldo insuficiente retorna 402.
+
+## Hierarquia de Marcas
+
+- [ ] `parent_project_id` aponta para um Project do mesmo `user_id`.
+- [ ] Nenhuma consulta usa `parent_project_id` para agregar dados entre Brands.
+- [ ] Nenhuma coluna de crédito foi adicionada a `projects`.
 
 ## Testes
 
@@ -257,6 +282,76 @@ Motivo: risco de contaminação dos ambientes de homologação e produção.
 
 ---
 
+### 16.
+
+Texto em português em telas do cliente final.
+
+```blade
+<button>Gerar briefing</button>          {{-- PROIBIDO --}}
+<button>Generate briefing</button>       {{-- correto --}}
+```
+
+Motivo: toda superfície voltada ao cliente final é em inglês. O painel administrativo (`/admin/*`, uso interno) é a única exceção. Ver `SAD.md`, Seção 10.1.1.
+
+---
+
+### 17.
+
+Utilizar tokens de cor do Design System anterior.
+
+```html
+<div class="bg-[#111111] text-[#FF5500]">   <!-- PROIBIDO -->
+```
+
+Motivo: a paleta antiga foi integralmente substituída. Usar exclusivamente os tokens da Seção 10.4 do `SAD.md` — `primary`, `secondary`, `accent`, `app-bg`, `app-bg-dark`, `app-card-dark`.
+
+---
+
+### 18.
+
+Somar os dois saldos de crédito em uma única coluna.
+
+```php
+$user->credits_balance = $plan + $purchased;   // PROIBIDO
+```
+
+Motivo: `plan_credits_balance` expira na virada do ciclo e `purchased_credits_balance` nunca expira. Consolidá-los destrói a informação que decide o que pode ser cobrado do usuário.
+
+---
+
+### 19.
+
+Ícones com `stroke-width` diferente de `0.3` ou tamanho fora de `w-5 h-5` / `w-4 h-4`.
+
+```html
+<svg class="w-6 h-6" stroke-width="1.5">    <!-- PROIBIDO -->
+<svg class="w-5 h-5" stroke="currentColor" stroke-width="0.3">   <!-- correto -->
+```
+
+Motivo: o traço fino é parte da identidade visual do produto; os padrões de Heroicons e Lucide não se aplicam.
+
+---
+
+### 20.
+
+Inicializar a aplicação com `<html class="dark">` fixo.
+
+Motivo: o Light mode é o tema padrão. O Dark mode é variante aplicada pelo prefixo `dark:` e ativada pelo `theme-toggle-btn`.
+
+---
+
+### 21.
+
+Ampliar o escopo de uma consulta através de `parent_project_id`.
+
+```php
+Execution::whereIn('project_id', $brand->children->pluck('id'));   // PROIBIDO
+```
+
+Motivo: a hierarquia de marcas organiza a apresentação, nunca o isolamento de dados. Cada Brand — inclusive sub-brand — permanece escopada pelo seu próprio `project_id`.
+
+---
+
 # 4. Decisões Arquiteturais Fixadas
 
 | Decisão | Alternativa Rejeitada | Nunca Reverter Sem ADR |
@@ -279,8 +374,13 @@ Motivo: risco de contaminação dos ambientes de homologação e produção.
 | Queue para toda execução de IA | Processamento síncrono | Sim |
 | Custos de créditos em `plan_limits` | Valores hardcoded | Sim |
 | Escopo obrigatório por `project_id` | Dados globais | Sim |
-| Modo Dark como padrão | Light como padrão | Sim |
-| Fonte oficial Inter | Troca de tipografia sem ADR | Sim |
+| Modo Light como padrão, Dark como variante `dark:` | Dark First | Sim |
+| Newsreader (títulos) + Inter (corpo e UI) | Tipografia única | Sim |
+| Paleta `#d2691e` / `#9e6136` / `#6b4e3a` | Paleta `#111111` / `#FF5500` | Sim |
+| Interface do cliente final em inglês | Interface em português | Sim |
+| Dois saldos de crédito separados | Saldo único consolidado | Sim |
+| Feature gating de pipelines por plano | Diferenciação apenas por volume de créditos | Sim |
+| Sub-brands compartilham o saldo do usuário | Saldo por Brand | Sim |
 | `is_admin` boolean em `users` | Tabela de papéis / RBAC | Sim |
 | Controllers administrativos isolados em `Admin` | Reuso de Controllers Web ou Api | Sim |
 | Auditoria obrigatória em `admin_action_logs` | Ação administrativa sem rastro | Sim |

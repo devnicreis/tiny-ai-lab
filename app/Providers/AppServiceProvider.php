@@ -7,6 +7,7 @@ use App\Models\Project;
 use App\Policies\ExecutionPolicy;
 use App\Policies\ProjectPolicy;
 use App\Services\CreditService;
+use App\Services\ExecutionService;
 use App\Services\FirebaseService;
 use App\Services\N8nService;
 use Illuminate\Support\Facades\Gate;
@@ -26,6 +27,9 @@ class AppServiceProvider extends ServiceProvider
 
         // Stateless: todo estado vive em plan_limits e em users.credits_balance.
         $this->app->singleton(CreditService::class);
+
+        // Stateless: orquestra CreditService, Policy e fila a cada chamada.
+        $this->app->singleton(ExecutionService::class);
     }
 
     /**

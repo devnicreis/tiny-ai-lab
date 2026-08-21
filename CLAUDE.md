@@ -8,7 +8,7 @@ Este documento é a fonte de verdade do projeto. Nunca tome decisões arquitetur
 
 ## 1. Identidade do Projeto
 
-Tiny AI Lab é uma plataforma SaaS B2B para orquestração inteligente de marketing baseada em IA, construída sobre o conceito de Brand Memory, onde toda operação ocorre dentro de uma Brand (Project) ativa.
+Arkion é uma plataforma SaaS B2B para orquestração inteligente de marketing baseada em IA, construída sobre o conceito de Brand Memory, onde toda operação ocorre dentro de uma Brand (Project) ativa.
 
 A aplicação utiliza Laravel 11, Livewire 3, PostgreSQL, Redis, Horizon, Reverb, Firebase Authentication, Stripe Cashier e n8n self-hosted como motor externo de orquestração de IA.
 
@@ -59,15 +59,20 @@ A arquitetura oficial é um monólito Laravel utilizando Blade + Livewire, execu
 17. Declarar sempre $fillable explicitamente em todos os Models; nunca utilizar protected $guarded = [].
 18. Toda comunicação Laravel ↔ n8n deve ocorrer exclusivamente via Webhooks HTTP autenticados.
 19. Toda execução de IA deve ser assíncrona utilizando Redis, Horizon e Queue Workers.
-20. O modo Dark é o padrão oficial; o elemento <html> deve iniciar sempre com class="dark".
-21. A fonte oficial do sistema é Inter; nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
+20. O modo Light é o padrão oficial; o elemento <html> inicia sem classe de tema e o modo Dark é aplicado exclusivamente pelo prefixo Tailwind `dark:`.
+21. As fontes oficiais do sistema são Newsreader (`font-serif`, títulos H1–H5) e Inter (`font-sans`, corpo e UI); nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
 22. `is_admin` é um boolean na tabela `users`, não uma tabela separada. Reavaliar apenas via ADR se o sistema crescer para múltiplos funcionários com hierarquia de permissões.
 23. Rotas `/admin/*` nunca compartilham Controllers com rotas de Web ou de Api. Sempre em `App\Http\Controllers\Admin`.
 24. Toda ação administrativa que altera dados de um usuário (créditos, plano, status de conta) deve ser registrada em `admin_action_logs` antes de retornar sucesso ao admin.
+25. Toda tela voltada ao cliente final usa inglês. Painel administrativo (uso interno) pode usar português.
+26. Nunca usar tokens de cor antigos (#111111, #FF5500) — usar exclusivamente a paleta documentada na Seção 10 do SAD.
+27. Créditos têm dois saldos: `plan_credits_balance` e `purchased_credits_balance`. Nunca somar os dois em uma única coluna.
+28. Ícones são SVG inline com `stroke="currentColor" stroke-width="0.3"` e tamanho `w-5 h-5` ou `w-4 h-4`; nenhum outro peso ou tamanho é permitido.
+29. Um Project pode ter `parent_project_id` opcional apontando para outro Project do mesmo usuário; sub-brands compartilham o saldo do usuário e nunca ampliam o escopo de consultas por `project_id`.
 
 ## 4. Estrutura de Diretórios
 
-Somente os diretórios abaixo fazem parte da arquitetura oficial do Tiny AI Lab e podem ser criados ou modificados pelo agente.
+Somente os diretórios abaixo fazem parte da arquitetura oficial do Arkion e podem ser criados ou modificados pelo agente.
 
 ```text
 app/
@@ -330,7 +335,8 @@ tests/
 ### Convenções Gerais
 
 - Utilizar inglês em nomes de classes, métodos, propriedades e arquivos.
-- Utilizar português apenas para textos apresentados ao usuário.
+- Utilizar inglês em todo texto apresentado ao cliente final (labels, botões, placeholders, mensagens de validação e de erro, estados vazios, notificações e e-mails). Ver regra 25 e SAD, Seção 10.1.1.
+- Utilizar português apenas no painel administrativo (uso interno) e na documentação de arquitetura.
 - Evitar abreviações que não sejam amplamente reconhecidas.
 - Utilizar nomes descritivos e orientados ao domínio.
 - Não utilizar prefixos como `tbl_`, `obj_`, `str_`, `tmp_` ou similares.

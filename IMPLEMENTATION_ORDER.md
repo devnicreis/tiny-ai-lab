@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ORDER.md
 
-> Ordem oficial de implementação do Tiny AI Lab.
+> Ordem oficial de implementação do Arkion.
 >
 > Este documento responde à pergunta:
 >
@@ -375,7 +375,7 @@ Nenhuma.
 
 ### Objetivo
 
-Representar cada Brand (Projeto) do Tiny AI Lab.
+Representar cada Brand (Projeto) do Arkion.
 
 Toda operação do sistema pertence exatamente a um Project.
 
@@ -1908,7 +1908,7 @@ A Fase 4 somente estará concluída quando:
 
 ## Próxima Etapa
 
-Após o CRUD de Projects estar totalmente funcional, iniciar a **FASE 5 — Infraestrutura de Filas**, configurando Redis, Horizon, filas especializadas e o processamento assíncrono que servirá de base para todas as Execuções de IA do Tiny AI Lab.
+Após o CRUD de Projects estar totalmente funcional, iniciar a **FASE 5 — Infraestrutura de Filas**, configurando Redis, Horizon, filas especializadas e o processamento assíncrono que servirá de base para todas as Execuções de IA do Arkion.
 
 
 # FASE 5 — INFRAESTRUTURA DE FILAS
@@ -2322,7 +2322,7 @@ Após a infraestrutura de filas e a fundação visual estarem concluídas, inici
 
 Objetivo desta fase:
 
-Validar que toda a fundação do Tiny AI Lab esteja concluída, integrada e pronta para iniciar o desenvolvimento dos módulos de IA no Mês 2.
+Validar que toda a fundação do Arkion esteja concluída, integrada e pronta para iniciar o desenvolvimento dos módulos de IA no Mês 2.
 
 Nenhuma nova funcionalidade deve ser criada nesta fase.
 
@@ -2678,9 +2678,36 @@ Após a conclusão desta fase, o projeto estará apto para iniciar o **Mês 2 �
 - processamento assíncrono dos pipelines de IA;
 - atualização em tempo real via Reverb;
 - persistência dos resultados em JSONB;
-- início dos primeiros fluxos de geração de conteúdo do Tiny AI Lab.
+- início dos primeiros fluxos de geração de conteúdo do Arkion.
 
 Nenhuma dessas funcionalidades deve ser iniciada antes da aprovação integral desta fase.
+
+---
+
+# MÊS 3 — INTERFACE E BRAND CORE
+
+> As fases do Mês 3 ainda não foram detalhadas e serão especificadas em sessão própria.
+> Esta entrada existe para fixar os **HTMLs de referência oficiais** do novo Design System (`SAD.md`, Seção 10).
+
+## HTMLs de Referência — Sidebar, Header e Brand Core
+
+O Design System foi integralmente redesenhado com o rebranding para Arkion. Os HTMLs de referência anteriores estão **obsoletos** e não devem mais ser consultados por nenhum agente.
+
+| Fase do Mês 3 | HTML obsoleto | HTML oficial |
+|---------------|---------------|--------------|
+| Sidebar | ~~`sidebar.html`~~ | **`sidebar_2_0.html`** |
+| Header | ~~`header.html`~~ | **`header_2_0.html`** |
+| Brand Core | ~~`brand_core.html`~~ | **`brand_core_v2.html`** |
+
+O mapeamento HTML → componente Blade/Livewire está em `SAD.md`, Seção 10.13.
+
+Qualquer implementação dessas telas deve partir dos arquivos `_2_0` / `_v2` e respeitar:
+
+- Light mode como padrão, Dark como variante `dark:` (Seção 10.2);
+- a paleta da Seção 10.4 — nenhum token antigo;
+- Newsreader em `H1`–`H5` e Inter no restante (Seção 10.6);
+- ícones SVG com `stroke-width="0.3"` (Seção 10.7);
+- todo texto de interface em inglês (Seção 10.1.1).
 
 ---
 
@@ -2693,7 +2720,7 @@ Nenhuma dessas funcionalidades deve ser iniciada antes da aprovação integral d
 
 | Ordem | Fase | Especificação |
 |-------|------|---------------|
-| 1 | Fase 4.1 — Stripe, Cashier e `CheckSubscription` | A detalhar em sessão própria |
+| 1 | Fase 4.1 — Stripe, Cashier e `CheckSubscription` | A detalhar em sessão própria. Inclui a decisão **[A DEFINIR]** sobre a infraestrutura de pagamento de créditos avulsos — Stripe Checkout one-time vs Lemon Squeezy (`SAD.md`, Seção 12.13) — e a migration dos dois saldos de crédito (`SAD.md`, Seção 12.8) |
 | 2 | **Fase 4.2 — Admin Panel** | **Especificada abaixo** |
 | 3 | Fase 4.3 — PWA | A detalhar em sessão própria (ver `SAD.md`, Seção 15) |
 
@@ -2705,7 +2732,7 @@ Os Meses 2 e 3 e as Fases 4.1 e 4.3 serão detalhados em sessões próprias. Nen
 
 Objetivo desta fase:
 
-Implementar a interface interna de operação do Tiny AI Lab, permitindo suporte, inspeção de contas e ajuste manual de créditos dentro do domínio Laravel — sujeitos a Policies, Services e auditoria — eliminando a necessidade de qualquer alteração manual em banco de produção.
+Implementar a interface interna de operação do Arkion, permitindo suporte, inspeção de contas e ajuste manual de créditos dentro do domínio Laravel — sujeitos a Policies, Services e auditoria — eliminando a necessidade de qualquer alteração manual em banco de produção.
 
 Referência arquitetural: `SAD.md`, **Seção 14 — Painel Administrativo**.
 

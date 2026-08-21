@@ -1,10 +1,16 @@
 # Software Architecture Document (SAD)
 
-**Projeto:** Tiny AI Lab  
-**Versão:** 1.0 (Living Document)  
+**Projeto:** Arkion  
+**Versão:** 2.0 (Living Document)  
 **Status:** Production Ready Architecture Specification  
 **Stack:** Laravel 11 + Livewire 3 + PostgreSQL + n8n + Redis + Reverb  
-**Última atualização:** Julho/2026
+**Última atualização:** Agosto/2026
+
+> **Revisão 2.0 — Rebranding e redesenho.** O produto passou de "Tiny AI Lab" para **Arkion**.
+> Três blocos foram reescritos: **Seção 10** (novo Design System — Light first, paleta `#d2691e`,
+> tipografia Newsreader + Inter, interface do cliente final em inglês), **Seção 12** (dois saldos
+> de crédito, feature gating de pipelines por plano, `credit_packages`) e a nova **Seção 19**
+> (Hierarquia de Marcas — umbrella brands). Nenhuma dessas mudanças está implementada em código.
 
 ---
 
@@ -12,7 +18,7 @@
 
 ## 1.1 Objetivo
 
-O Tiny AI Lab é uma plataforma SaaS B2B construída para atuar como um orquestrador inteligente de marketing orientado por IA. Seu propósito é eliminar a fragmentação do processo estratégico de criação de conteúdo, concentrando em uma única plataforma toda a inteligência da marca, ativos, pesquisas, diagnósticos e geração automatizada de materiais de marketing.
+O Arkion é uma plataforma SaaS B2B construída para atuar como um orquestrador inteligente de marketing orientado por IA. Seu propósito é eliminar a fragmentação do processo estratégico de criação de conteúdo, concentrando em uma única plataforma toda a inteligência da marca, ativos, pesquisas, diagnósticos e geração automatizada de materiais de marketing.
 
 Em vez de funcionar como uma ferramenta isolada de geração de texto, o sistema mantém uma memória estruturada da marca ("Brand Memory"), permitindo que todos os artefatos produzidos sejam contextualizados pelas características específicas de cada empresa. A plataforma converte informações brutas fornecidas pelo usuário em ativos estratégicos estruturados, utilizando múltiplos modelos de IA coordenados por pipelines especializados executados pelo n8n.
 
@@ -32,7 +38,7 @@ Essa fragmentação gera:
 - dificuldade de reaproveitamento de informações;
 - dependência de conhecimento tácito das equipes.
 
-O Tiny AI Lab centraliza essas informações em um único workspace por marca ("Brand Workspace"), permitindo que todos os processos de geração utilizem uma fonte consistente de conhecimento.
+O Arkion centraliza essas informações em um único workspace por marca ("Brand Workspace"), permitindo que todos os processos de geração utilizem uma fonte consistente de conhecimento.
 
 ---
 
@@ -55,7 +61,7 @@ Mercados prioritários:
 
 ## 1.4 Modelo de Monetização
 
-O Tiny AI Lab utiliza um modelo de assinatura baseado em **créditos de IA**, e **não** em quantidade fixa de execuções mensais.
+O Arkion utiliza um modelo de assinatura baseado em **créditos de IA**, e **não** em quantidade fixa de execuções mensais.
 
 Cada ação disponível na plataforma possui um custo específico de créditos.
 
@@ -74,11 +80,15 @@ O consumo ocorre apenas após a validação da assinatura ativa e da existência
 | Create Post | **[A DEFINIR]** |
 | Create Ad | **[A DEFINIR]** |
 
-Os limites de cada plano determinam a quantidade total de créditos disponíveis ao usuário.
+Cada usuário possui **dois saldos separados**: `plan_credits_balance`, que renova mensalmente e não é cumulativo, e `purchased_credits_balance`, adquirido em pacotes avulsos e que nunca expira. O consumo debita sempre o saldo do plano primeiro. Ver Seção 12.
+
+Além do saldo, cada plano concede acesso a um **subconjunto dos pipelines** disponíveis — o plano determina não apenas quanto o usuário pode executar, mas o que ele pode executar.
 
 O sistema nunca limita funcionalidades através de número fixo de execuções.
 
 Toda operação consome créditos conforme sua complexidade computacional.
+
+Os planos comerciais vigentes são **Arkion Copy & Briefing**, **Arkion Studio Visual** e **Arkion Full Pass**, detalhados na Seção 12.6.
 
 ---
 
@@ -308,17 +318,21 @@ Não existem dados globais de marketing pertencentes diretamente ao usuário.
 
 ---
 
-## Toda interface é Dark First
+## Toda interface é Light First
 
-O modo escuro representa a aparência oficial da plataforma.
+O modo claro representa a aparência oficial da plataforma.
 
-O tema claro existe apenas como alternativa.
+O tema escuro existe como variante, aplicada exclusivamente pelo prefixo `dark:` do Tailwind.
 
-O elemento `<html>` inicia obrigatoriamente com a classe:
+O elemento `<html>` inicia **sem** classe de tema:
 
 ```html
-<html class="dark">
+<html>
 ```
+
+O tema escuro é ativado sob demanda pelo `theme-toggle-btn`, que adiciona a classe `dark` ao elemento `<html>` e persiste a escolha em `localStorage`.
+
+Ver Seção 10 — Design System e Frontend.
 
 ---
 
@@ -390,7 +404,7 @@ A arquitetura não precisa manter compatibilidade com MySQL.
 
 ## 2.1 Visão Geral
 
-A arquitetura do Tiny AI Lab adota um monólito moderno baseado na TALL Stack (Tailwind, Alpine.js, Laravel, Livewire), complementado por serviços especializados para filas, autenticação, tempo real e orquestração de IA.
+A arquitetura do Arkion adota um monólito moderno baseado na TALL Stack (Tailwind, Alpine.js, Laravel, Livewire), complementado por serviços especializados para filas, autenticação, tempo real e orquestração de IA.
 
 Todo componente foi escolhido para reduzir complexidade operacional, minimizar custos de infraestrutura e concentrar a lógica de negócio em uma única aplicação Laravel.
 
@@ -426,7 +440,7 @@ Todo componente foi escolhido para reduzir complexidade operacional, minimizar c
 
 ## 3.1 Visão Geral
 
-O Tiny AI Lab é implantado em uma arquitetura composta por dois Droplets independentes na DigitalOcean, conectados através de uma VPC privada.
+O Arkion é implantado em uma arquitetura composta por dois Droplets independentes na DigitalOcean, conectados através de uma VPC privada.
 
 Essa separação possui dois objetivos principais:
 
@@ -901,7 +915,7 @@ Essas evoluções não alteram o domínio do sistema.
 
 ## 4.1 Visão Geral
 
-O PostgreSQL constitui o banco de dados oficial do Tiny AI Lab.
+O PostgreSQL constitui o banco de dados oficial do Arkion.
 
 A modelagem privilegia:
 
@@ -1025,6 +1039,7 @@ A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
 |---------|------|-------------|
 | id | bigint | PK |
 | user_id | bigint | FK users |
+| parent_project_id | bigint | FK projects, **nullable** |
 | name | string | NOT NULL |
 | slug | string | UNIQUE |
 | logo | string | nullable |
@@ -1032,12 +1047,18 @@ A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
 | created_at | timestamp | NOT NULL |
 | updated_at | timestamp | NOT NULL |
 
+`parent_project_id` é auto-referencial e opcional. Quando preenchido, a Brand é uma **sub-brand** da Brand apontada, que precisa pertencer ao mesmo `user_id`. Quando nulo, a Brand é de topo. A hierarquia completa está documentada na Seção 19 — Hierarquia de Marcas (Umbrella Brands).
+
+**Estado:** migration pendente. A coluna é documentação de arquitetura; o schema atual ainda não a possui.
+
 ---
 
 ### Índices
 
 ```
 INDEX(user_id)
+
+INDEX(parent_project_id)
 
 UNIQUE(slug)
 ```
@@ -1500,7 +1521,7 @@ Migrações futuras nunca devem depender da estrutura interna desses JSONs.
 
 ## 5.1 Visão Geral
 
-A autenticação do Tiny AI Lab é baseada no **Firebase Authentication**, enquanto toda autorização e aplicação das regras de negócio permanecem sob responsabilidade exclusiva do Laravel.
+A autenticação do Arkion é baseada no **Firebase Authentication**, enquanto toda autorização e aplicação das regras de negócio permanecem sob responsabilidade exclusiva do Laravel.
 
 Essa separação estabelece um limite claro de responsabilidades:
 
@@ -2182,7 +2203,7 @@ Execution::whereUserId(auth()->id());
 
 ## 6.1 Visão Geral
 
-Todo processamento de IA no Tiny AI Lab segue uma arquitetura assíncrona baseada em filas.
+Todo processamento de IA no Arkion segue uma arquitetura assíncrona baseada em filas.
 
 Nenhuma requisição HTTP do usuário permanece aberta aguardando processamento de modelos de IA.
 
@@ -3793,7 +3814,7 @@ A configuração exata de métricas permanece:
 
 ## 9.1 Visão Geral
 
-O Tiny AI Lab utiliza **Laravel Reverb** como mecanismo oficial de comunicação em tempo real.
+O Arkion utiliza **Laravel Reverb** como mecanismo oficial de comunicação em tempo real.
 
 Toda atualização de estado das execuções deve ser propagada imediatamente para a interface sem necessidade de atualização manual da página.
 
@@ -4153,7 +4174,7 @@ Pelo mesmo motivo, nem o segredo nem a URL do webhook podem chegar ao log: `N8nC
 
 ## 10.1 Visão Geral
 
-A interface do Tiny AI Lab é construída integralmente utilizando:
+A interface do Arkion é construída integralmente utilizando:
 
 - Blade;
 - Livewire 3;
@@ -4164,7 +4185,30 @@ Não existe frontend desacoplado.
 
 O Design System constitui parte da arquitetura e deve ser seguido rigorosamente por qualquer agente responsável pela geração de componentes.
 
-O modo escuro (**Dark First**) representa a aparência oficial da plataforma.
+O **Light mode é o tema padrão** da plataforma. O Dark mode existe como **variante**, aplicada exclusivamente através do prefixo `dark:` do Tailwind.
+
+Esta seção substitui integralmente o Design System anterior ("Dark First", paleta `#111111` / `#FF5500`, tipografia única Inter). Nenhum token do sistema antigo permanece válido.
+
+A fonte de verdade visual é `.claude/docs/UI-KIT.md`. Esta seção é a transposição normativa daquele documento para a arquitetura do Arkion; onde houver divergência, o `UI-KIT.md` prevalece e esta seção deve ser corrigida.
+
+---
+
+## 10.1.1 Regra de Idioma da Interface
+
+| Superfície | Idioma obrigatório |
+|-----------|--------------------|
+| Rotas de produto (interface do cliente final) | **Inglês** |
+| Painel administrativo (`/admin/*`, uso interno) | Português permitido |
+| Código (classes, métodos, variáveis, arquivos) | Inglês |
+| Documentação de arquitetura (SAD, CLAUDE, PROJECT_RULES) | Português |
+
+Todo texto voltado ao cliente final — labels, botões, placeholders, títulos, mensagens de validação, mensagens de erro, estados vazios, tooltips, e-mails transacionais e notificações — deve ser escrito **em inglês**.
+
+Esta regra **substitui qualquer menção anterior a mensagens em português nas rotas de produto** presente em outras seções deste documento. Onde houver conflito, esta seção prevalece.
+
+O painel administrativo é uma ferramenta interna e pode permanecer em português.
+
+> ⚠️ **Regra crítica:** Nenhuma string em português pode ser introduzida em uma view, componente Livewire, Form Request ou Exception que alcance a interface do cliente final. Mensagens de validação em português já existentes nas rotas de produto constituem dívida técnica e devem ser traduzidas quando o arquivo for tocado.
 
 ---
 
@@ -4189,41 +4233,43 @@ export default {
 
             colors: {
 
-                orange: {
+                primary: '#d2691e',
 
-                    50: '#fff4ed',
+                secondary: '#9e6136',
 
-                    100: '#ffe6d4',
-
-                    200: '#ffc8a8',
-
-                    300: '#ffa270',
-
-                    400: '#ff7438',
-
-                    500: '#ff5500',
-
-                    600: '#f04000',
-
-                    700: '#c82e02',
-
-                    800: '#9e250a',
-
-                    900: '#7e220c',
-
-                },
+                accent: '#6b4e3a',
 
                 app: {
 
-                    bg: '#111111',
+                    'bg-dark': '#121214',
 
-                    card: '#1c1c1c'
+                    'card-dark': '#1c1c1c',
+
+                    'text-dark': '#f4f4f6'
+
+                },
+
+                state: {
+
+                    success: '#16a34a',
+
+                    'success-dark': '#22c55e',
+
+                    warning: '#f59e0b',
+
+                    'warning-dark': '#fbbf24',
+
+                    error: '#dc2626',
+
+                    'error-dark': '#ef4444'
 
                 }
 
             },
 
             fontFamily: {
+
+                serif: ['Newsreader', 'serif'],
 
                 sans: ['Inter', 'sans-serif']
 
@@ -4236,7 +4282,9 @@ export default {
 }
 ```
 
-Esta configuração constitui a base oficial do Design System.
+`darkMode: 'class'` permanece obrigatório, porém com a semântica invertida em relação ao sistema anterior: o documento **inicia sem a classe `dark`** e o tema escuro passa a ser um estado opcional.
+
+O tema claro se apoia deliberadamente na escala neutra padrão do Tailwind (`gray-50`, `white`, `gray-200`, `gray-500`, `gray-900`). Apenas os valores que o `UI-KIT.md` define como exclusivos da marca ou do tema escuro recebem token próprio.
 
 ---
 
@@ -4244,190 +4292,178 @@ Esta configuração constitui a base oficial do Design System.
 
 O sistema segue os seguintes princípios:
 
-- Dark First;
-- alto contraste;
+- Light first, dark como variante;
+- contraste legível em ambos os temas;
 - interface minimalista;
 - foco em produtividade;
 - uso consistente da cor de marca;
 - componentes reutilizáveis;
-- tipografia única.
+- tipografia dupla — serifada para títulos, sans para corpo e UI;
+- ícones traçados com peso mínimo.
 
 ---
 
-# 10.4 Paleta de Superfícies
+# 10.4 Paleta Oficial
 
-## Background Global
+Fonte: `.claude/docs/UI-KIT.md`, Seção 2 — *Visual Identity, Exclusive Palette & Dual Theme*.
 
+## Cores de Marca
+
+| Token | Valor | Papel |
+|-------|-------|-------|
+| `primary` | `#d2691e` | Cor de marca. Botões primários, ícones ativos, estados de foco, etapas ativas, bordas selecionadas. |
+| `secondary` | `#9e6136` | Cor de apoio. Texto secundário no tema escuro, ícones em repouso, realces discretos. |
+| `accent` | `#6b4e3a` | Acento marrom. Backgrounds de hover e bordas do tema escuro, sempre com opacidade. |
+| `app-bg-dark` | `#121214` | Background global do tema escuro. |
+| `app-card-dark` | `#1c1c1c` | Superfície de cards, painéis, modais e dropdowns no tema escuro. |
+| `app-text-dark` | `#f4f4f6` | Texto primário do tema escuro. |
+
+`#f4f4f6` é uma cor de **texto do tema escuro**, não o background do tema claro. O background claro é `gray-50`.
+
+## Regras de Aplicação
+
+Toda superfície do sistema é definida por um par light/dark. Estes pares são normativos e devem ser copiados literalmente:
+
+| Papel | Light | Dark |
+|-------|-------|------|
+| Background de tela e menus | `bg-gray-50` | `dark:bg-[#121214]` |
+| Containers, cards e dropdowns | `bg-white` | `dark:bg-[#1c1c1c]` |
+| Background de hover (interação dinâmica) | `hover:bg-[#6b4e3a]/20` | `dark:hover:bg-[#6b4e3a]/20` |
+| Bordas e divisórias | `border-gray-200` | `dark:border-[#6b4e3a]/30` |
+| Texto principal e títulos | `text-gray-900` | `dark:text-[#f4f4f6]` |
+| Texto secundário / muted | `text-gray-500` | `dark:text-[#9e6136]` ou `dark:text-[#f4f4f6]/60` |
+| Destaques e ações fortes | `text-[#d2691e]` / `bg-[#d2691e]` | idem — a cor de marca não varia por tema |
+| Foco | `focus:ring-[#d2691e]` | idem |
+| Borda em hover | `hover:border-[#d2691e]` | idem |
+
+O background de hover usa o acento marrom com opacidade em **ambos** os temas — é o único par em que light e dark compartilham o mesmo valor.
+
+Para texto secundário no tema escuro, `dark:text-[#9e6136]` é a escolha padrão. `dark:text-[#f4f4f6]/60` é a alternativa autorizada quando o marrom não alcança contraste suficiente sobre a superfície em questão.
+
+## Hover do CTA Primário
+
+O botão primário **não possui um hex de hover próprio**. O estado de hover é obtido escurecendo a própria cor de marca:
+
+```html
+<button class="bg-[#d2691e] text-white hover:brightness-90 transition">
+    Generate
+</button>
 ```
-#111111
+
+Motivo da escolha:
+
+- um segundo hexadecimal seria mais um token para manter sincronizado com `#d2691e` a cada ajuste de marca;
+- `brightness-90` é um filtro relativo e acompanha automaticamente qualquer mudança futura da cor primária;
+- o mesmo utilitário funciona nos dois temas sem variante `dark:`, porque a cor de marca não muda entre eles;
+- o comportamento se estende sem duplicação a qualquer elemento que use `#d2691e` como fundo — badges, chips, indicadores.
+
+O hover do CTA primário nunca deve ser expresso como `hover:bg-[#...]`.
+
+## Cores Semânticas
+
+> **Recomendação, não UI-KIT.** As cores abaixo **não constam do `UI-KIT.md`** e foram definidas como recomendação do time durante a revisão 2.0 do SAD. Substituir sem ADR caso o UI-KIT passe a especificá-las.
+
+| Estado | Light | Dark |
+|--------|-------|------|
+| Success | `#16a34a` | `#22c55e` |
+| Warning | `#f59e0b` | `#fbbf24` |
+| Error | `#dc2626` | `#ef4444` |
+
+Aplicação:
+
+```html
+<p class="text-[#16a34a] dark:text-[#22c55e]">Execution completed</p>
+<p class="text-[#f59e0b] dark:text-[#fbbf24]">Low credit balance</p>
+<p class="text-[#dc2626] dark:text-[#ef4444]">Execution failed</p>
 ```
 
-Token:
+Regras:
 
-```
-app-bg
-```
-
-Papel:
-
-Background principal do `<body>`.
+- as cores semânticas comunicam **estado**, nunca hierarquia visual. Um botão de ação destrutiva usa `error`; um botão importante usa `primary`.
+- os estados de `Execution` da Seção 6 mapeiam assim: `completed` → success, `failed` → error, `queued` e `processing` → `secondary` (neutro, sem cor semântica).
+- saldo insuficiente e créditos próximos do fim usam warning.
 
 ---
 
-## Card
-
-```
-#1c1c1c
-```
-
-Token:
-
-```
-app-card
-```
-
-Utilizado em:
-
-- cards;
-- painéis;
-- modais;
-- widgets.
-
----
-
-## Sidebar
-
-```
-#1C1917
-```
-
-Papel:
-
-Background da navegação principal.
-
----
-
-## Bordas
-
-```
-#292524
-```
-
-Utilizado para:
-
-- inputs;
-- divisórias;
-- tabelas;
-- cards.
-
----
-
-## Hover Secundário
-
-```
-#44403C
-```
-
-Utilizado para:
-
-- itens ativos;
-- hover de menus.
-
----
-
-## Hover Claro
-
-```
-#554f49
-```
-
-Utilizado para estados intermediários.
-
----
-
-## Texto Secundário
-
-```
-#A8A29E
-```
-
-Utilizado para:
-
-- placeholders;
-- labels;
-- textos auxiliares.
-
----
-
-## Texto Primário
-
-```
-#FAFAFA
-```
-
-Utilizado em:
-
-- títulos;
-- conteúdos principais.
-
----
-
-## Cor da Marca
-
-```
-#FF5500
-```
-
-Utilizada para:
-
-- CTA principal;
-- ícones ativos;
-- indicadores;
-- botões primários.
-
----
-
-## Hover CTA
-
-```
-#E64D00
-```
-
-Utilizado exclusivamente para hover do botão primário.
-
----
-
-# 10.5 Regras Gerais
+# 10.5 Regras Gerais da Paleta
 
 Nunca criar novas cores para componentes.
 
-Todo elemento deve utilizar exclusivamente os tokens documentados.
+Todo elemento deve utilizar exclusivamente os tokens e os pares light/dark documentados nesta seção.
 
 Novos componentes devem reutilizar a paleta existente.
 
+Todo elemento gerado deve nascer no tema claro e receber sua variante escura via prefixo `dark:` — nunca o contrário.
+
+Os tokens do Design System anterior estão **proibidos**:
+
+```
+#111111   ← background antigo
+#FF5500   ← cor de marca antiga
+#E64D00   ← hover antigo
+#1C1917   #292524   #44403C   #554f49   #A8A29E   #FAFAFA
+```
+
+Toda a escala `orange.50` … `orange.900` do sistema anterior foi removida.
+
+`#1c1c1c` permanece válido, porém exclusivamente como superfície de card do tema escuro (`app-card-dark`).
+
+> ⚠️ **Regra crítica:** O Design System faz parte da arquitetura do sistema. Não criar novas cores, variações ou tokens fora dos definidos nesta seção. Nunca reintroduzir `#111111` ou `#FF5500`. Toda interface deve reutilizar exclusivamente a paleta oficial documentada acima.
+
 ---
-
-> ⚠️ **Regra crítica:** O Design System faz parte da arquitetura do sistema. Não criar novas cores, variações ou tokens fora dos definidos nesta seção. Toda interface deve reutilizar exclusivamente a paleta oficial documentada acima.
-
 
 # 10.6 Tipografia
 
-## Fonte Oficial
+## Famílias Oficiais
 
-Toda a aplicação utiliza exclusivamente a família tipográfica **Inter**.
+O sistema utiliza **duas** famílias tipográficas, e apenas duas.
+
+| Família | Token Tailwind | Aplicação |
+|---------|----------------|-----------|
+| **Newsreader** | `font-serif` | Títulos `H1` a `H5` |
+| **Inter** | `font-sans` | Corpo de texto, labels, botões, inputs, tabelas, badges e toda a UI |
 
 Origem:
 
 - Google Fonts; ou
 - Bundle via Vite.
 
-Não existem fontes secundárias documentadas.
+Nenhuma terceira família pode ser introduzida sem ADR aprovada.
+
+---
+
+## Escala de Títulos — Newsreader
+
+| Nível | Uso | Classes |
+|-------|-----|---------|
+| `H1` | Título principal da página | `text-4xl tracking-tight` |
+| `H2` | Título de bloco | `text-3xl tracking-tight` |
+| `H3` | Título de card ou modal | `text-2xl` |
+| `H4` | Subseção | `text-xl` ou `text-lg` |
+| `H5` | Título de apoio menor | `text-base` ou `text-sm` |
+
+`H6` não faz parte da escala documentada.
+
+## Escala de Corpo e UI — Inter
+
+| Uso | Classes |
+|-----|---------|
+| Texto padrão (inputs, botões, dropdowns) | `text-sm` |
+| Textos de apoio longos (parágrafos, descrições) | `text-[13px] leading-relaxed` |
+| Micro-copy (tags, badges, tooltips, botões pequenos) | `text-xs` |
+| Micro absoluto (badges sobrepostos) | `text-[11px]` |
+
+Elementos de UI que aparentam ser títulos — labels de seção, cabeçalhos de tabela, títulos de card curtos — permanecem em `font-sans`.
 
 ---
 
 ## Configuração
 
 ```css
+/* Títulos */
+font-family: 'Newsreader', serif;
+
+/* Corpo e UI */
 font-family: 'Inter', sans-serif;
 ```
 
@@ -4435,9 +4471,36 @@ No Tailwind:
 
 ```javascript
 fontFamily: {
-    sans: ['Inter', 'sans-serif']
+    serif: ['Newsreader', 'serif'],
+    sans:  ['Inter', 'sans-serif']
 }
 ```
+
+---
+
+## Regra de Aplicação
+
+```html
+<h1 class="font-serif text-4xl tracking-tight text-gray-900 dark:text-[#f4f4f6]">…</h1>
+<h3 class="font-serif text-2xl text-gray-900 dark:text-[#f4f4f6]">…</h3>
+
+<p class="font-sans text-[13px] leading-relaxed text-gray-500 dark:text-[#9e6136]">…</p>
+<button class="font-sans text-sm">…</button>
+```
+
+---
+
+## Estilo Editorial dos Títulos
+
+Os títulos replicam um padrão editorial de alto contraste: dentro de uma mesma frase de cabeçalho, pesos finos e pesos fortes se alternam.
+
+```html
+<h1 class="font-serif text-4xl tracking-tight">
+    The <span class="font-bold">official guidelines</span> and essential pillars of your brand.
+</h1>
+```
+
+Este padrão é parte da identidade e deve ser aplicado nos títulos principais de página.
 
 ---
 
@@ -4448,26 +4511,70 @@ fontFamily: {
 | 400 | Texto corrido |
 | 500 | Labels, botões, badges |
 | 600 | Headings |
-| 700 | Títulos principais |
+| 700 | Títulos principais e trechos em destaque dentro de títulos |
 
 Outros pesos não fazem parte do Design System.
 
 ---
 
-## Tamanhos Especiais
+# 10.7 Ícones
 
-Os HTMLs identificam dois tamanhos adicionais além da escala padrão do Tailwind.
+Todos os ícones são **SVG inline**.
 
-| Tamanho | Utilização |
-|----------|------------|
-| 10px | Badges, indicadores pequenos |
-| 11px | Legendas, textos auxiliares |
+## Regras Obrigatórias
 
-Todo o restante da tipografia deve seguir a escala padrão do Tailwind.
+| Atributo | Valor |
+|----------|-------|
+| `stroke` | `currentColor` |
+| `stroke-width` | `0.3` |
+| `fill` | `currentColor` |
+| Tamanho principal | `w-5 h-5` (20×20px) |
+| Tamanho secundário | `w-4 h-4` (16×16px) |
+
+Exemplo canônico:
+
+```html
+<svg class="w-5 h-5 text-[#9e6136] hover:text-[#d2691e]"
+     viewBox="0 0 24 24"
+     fill="currentColor" stroke="currentColor" stroke-width="0.3">
+    <!-- path -->
+</svg>
+```
+
+## Escolha do Tamanho
+
+| Contexto | Tamanho |
+|----------|---------|
+| Ícones principais — Header, busca, notificações, Ask AI, ações globais | `w-5 h-5` |
+| Ícones secundários — dropdowns, filtros, inputs, badges | `w-4 h-4` |
+
+Nenhum outro tamanho de ícone pode ser introduzido.
+
+O `stroke-width` de `0.3` é uma **compensação de traço** deliberada e define a identidade visual do produto — nunca substituí-lo por `1`, `1.5` ou `2`, que são os padrões de bibliotecas como Heroicons ou Lucide.
+
+## Cor
+
+Ícones nunca recebem cor literal no atributo. A cor é controlada por classes de texto na própria tag ou no elemento pai, e herdada via `currentColor`:
+
+```html
+<span class="text-[#9e6136] hover:text-[#d2691e]">
+    <svg class="w-4 h-4" fill="currentColor" stroke="currentColor" stroke-width="0.3">…</svg>
+</span>
+```
+
+## Interações Premium — Glow e Scale
+
+Ícones de destaque e ícones dentro de botões `group` recebem a transição oficial:
+
+```html
+class="transition-all duration-300 group-hover:drop-shadow-[0_0_6px_#d2691e] group-hover:scale-110"
+```
+
+O glow usa sempre a cor de marca. Nenhuma outra cor de sombra é permitida.
 
 ---
 
-# 10.7 Estrutura Geral do Layout
+# 10.8 Estrutura Geral do Layout
 
 Toda a aplicação autenticada utiliza um único Application Shell.
 
@@ -4495,7 +4602,7 @@ Sidebar e Header permanecem persistentes.
 
 ---
 
-# 10.8 Sidebar
+# 10.9 Sidebar
 
 A Sidebar permanece fixa à esquerda.
 
@@ -4542,7 +4649,7 @@ Esses identificadores devem permanecer estáveis para manter compatibilidade ent
 
 ---
 
-# 10.9 Header
+# 10.10 Header
 
 O Header permanece fixo na parte superior da aplicação.
 
@@ -4574,7 +4681,7 @@ Esses IDs não devem ser alterados.
 
 ---
 
-# 10.10 Área Principal
+# 10.11 Área Principal
 
 Responsável por renderizar as páginas Livewire.
 
@@ -4602,11 +4709,13 @@ Toda navegação permanece dentro do layout Blade.
 
 ---
 
-# 10.11 Navegação da Sidebar
+# 10.12 Navegação da Sidebar
 
 A ordem dos menus é parte do Design System.
 
 Não deve ser alterada.
+
+Todos os rótulos abaixo são apresentados ao cliente final e, portanto, permanecem em inglês (Seção 10.1.1).
 
 ---
 
@@ -4702,15 +4811,18 @@ Report a Bug / Suggest
 
 ## Créditos
 
-O design identifica um indicador semelhante a:
+O indicador de créditos da Sidebar apresenta os **dois saldos** definidos na Seção 12:
 
 ```
-100 / 10000 credits used
+Plan credits:      850 / 1000
+Purchased credits: 240
 ```
 
 Este componente representa apenas a visualização do consumo.
 
 O cálculo é realizado no backend.
+
+Nunca somar os dois saldos em um único número exibido — a distinção entre crédito que expira e crédito que não expira é informação relevante ao usuário.
 
 ---
 
@@ -4718,13 +4830,15 @@ O cálculo é realizado no backend.
 
 CTA permanente na Sidebar.
 
-Responsável por iniciar o fluxo Stripe para compra de créditos adicionais.
+Responsável por iniciar o fluxo de compra de créditos avulsos, que credita `purchased_credits_balance` (Seção 12.9).
 
 ---
 
-# 10.12 Componentes Blade + Livewire
+# 10.13 Componentes Blade + Livewire
 
 A arquitetura estabelece um mapeamento direto entre os arquivos HTML de referência e os componentes Laravel.
+
+Os HTMLs de referência foram substituídos pelas versões do novo Design System. As versões antigas (`sidebar.html`, `header.html`, `brand_core.html`) estão obsoletas e não devem mais ser consultadas.
 
 ---
 
@@ -4733,7 +4847,7 @@ A arquitetura estabelece um mapeamento direto entre os arquivos HTML de referên
 HTML
 
 ```
-sidebar.html
+sidebar_2_0.html
 ```
 
 Implementação
@@ -4747,7 +4861,7 @@ app/Livewire/Sidebar.php
 Responsável por:
 
 - navegação;
-- Brand ativa;
+- Brand ativa (incluindo sub-brands, Seção 19);
 - créditos;
 - menus.
 
@@ -4758,7 +4872,7 @@ Responsável por:
 HTML
 
 ```
-header.html
+header_2_0.html
 ```
 
 Implementação
@@ -4813,7 +4927,7 @@ app/Livewire/LogoutModal.php
 ## Brand Core
 
 ```
-brand_core.html
+brand_core_v2.html
 ```
 
 ↓
@@ -4870,7 +4984,7 @@ app/Livewire/Marketing/SocialStrategy.php
 
 ---
 
-# 10.13 Padrões Alpine.js
+# 10.14 Padrões Alpine.js
 
 Toda interação leve da interface utiliza Alpine.js.
 
@@ -4930,7 +5044,13 @@ mobile-menu-btn
 
 ## Tema
 
-Alternância através da classe:
+O documento inicia **sem** classe de tema — o Light mode é o padrão:
+
+```html
+<html>
+```
+
+O Dark mode é ativado adicionando a classe `dark` ao elemento `<html>`:
 
 ```html
 <html class="dark">
@@ -4941,6 +5061,16 @@ Persistência:
 ```
 localStorage
 ```
+
+O `theme-toggle-btn` da Sidebar é o único controle autorizado a alternar a classe. Na ausência de preferência salva em `localStorage`, a aplicação renderiza em Light mode.
+
+Toda estilização de tema escuro ocorre exclusivamente através do prefixo `dark:`:
+
+```html
+<body class="bg-gray-50 text-gray-900 dark:bg-[#121214] dark:text-[#f4f4f6]">
+```
+
+Nunca criar folhas de estilo, componentes ou variantes separadas para o tema escuro.
 
 ---
 
@@ -4956,9 +5086,9 @@ Seleciona a Brand ativa.
 
 ---
 
-# 10.14 Multi-Brand (Brand Switcher)
+# 10.15 Multi-Brand (Brand Switcher)
 
-O conceito de Multi-Brand constitui uma das bases arquiteturais do Tiny AI Lab.
+O conceito de Multi-Brand constitui uma das bases arquiteturais do Arkion.
 
 Todo usuário trabalha dentro de um Workspace composto por múltiplas Brands independentes.
 
@@ -4969,6 +5099,8 @@ Cada Brand possui seu próprio contexto de:
 - pesquisas;
 - resultados;
 - estratégia.
+
+A hierarquia entre Brands (umbrella brands e sub-brands) está documentada na Seção 19.
 
 ---
 
@@ -4995,7 +5127,7 @@ Execution::query()
     ->where('project_id', $activeProject->id);
 ```
 
-Nunca retornar registros de outra Brand, mesmo pertencentes ao mesmo usuário.
+Nunca retornar registros de outra Brand, mesmo pertencentes ao mesmo usuário e mesmo quando uma for sub-brand da outra.
 
 ---
 
@@ -5004,6 +5136,7 @@ Nunca retornar registros de outra Brand, mesmo pertencentes ao mesmo usuário.
 Responsável por:
 
 - listar Brands;
+- apresentar sub-brands aninhadas sob a respectiva umbrella brand;
 - alterar Brand ativa;
 - atualizar contexto da aplicação.
 
@@ -5041,7 +5174,7 @@ A estratégia de propagação entre componentes permanece **[A DEFINIR]**.
 
 ## 11.1 Visão Geral
 
-O Tiny AI Lab adota a estrutura padrão do Laravel 11, organizada por responsabilidade de domínio.
+O Arkion adota a estrutura padrão do Laravel 11, organizada por responsabilidade de domínio.
 
 Os componentes Livewire representam a camada de apresentação reativa.
 
@@ -5497,31 +5630,280 @@ A organização específica de testes não está documentada.
 
 ## 12.1 Visão Geral
 
-O Tiny AI Lab utiliza um modelo baseado em créditos.
+O Arkion utiliza um modelo baseado em créditos.
 
 O sistema **não limita o número de execuções mensais**.
 
-Cada operação consome uma quantidade específica de créditos.
+Cada operação consome uma quantidade específica de créditos, proporcional ao processamento computacional envolvido.
 
-Essa arquitetura permite que diferentes funcionalidades possuam custos proporcionais ao processamento computacional envolvido.
+O modelo comercial repousa sobre dois eixos independentes:
 
----
+| Eixo | Pergunta que responde |
+|------|-----------------------|
+| **Saldo de créditos** | Quanto o usuário ainda pode executar? |
+| **Feature gating** | Quais pipelines o plano do usuário permite executar? |
 
-# 12.2 Estrutura dos Planos
-
-A documentação confirma que os planos possuem um saldo de créditos associado.
-
-Entretanto, os valores comerciais dos planos não estão especificados.
-
-| Plano | Créditos Totais | Preço |
-|--------|----------------:|-------:|
-| **[A DEFINIR]** | **[A DEFINIR]** | **[A DEFINIR]** |
-
-Não é possível inferir esses valores sem contradizer a documentação.
+Os dois eixos são verificados de forma independente e ambos precisam autorizar a operação. Saldo suficiente não concede acesso a um pipeline fora do plano; acesso ao pipeline não dispensa saldo.
 
 ---
 
-# 12.3 Consumo por Ação
+# 12.2 Os Dois Saldos de Crédito
+
+Cada usuário possui **dois saldos separados**, nunca consolidados em uma única coluna.
+
+| Saldo | Origem | Renovação | Expira? |
+|-------|--------|-----------|---------|
+| `plan_credits_balance` | Assinatura mensal do plano | Reposto no início de cada ciclo de cobrança | **Sim** — não é cumulativo |
+| `purchased_credits_balance` | Compra avulsa de pacotes de crédito | Somado ao saldo existente no momento da compra | **Não** — nunca expira |
+
+## Regra de não-acumulação
+
+`plan_credits_balance` é **substituído**, não incrementado, na renovação do ciclo:
+
+```text
+Renovação do ciclo:
+
+plan_credits_balance  =  créditos mensais do plano      ← atribuição
+```
+
+Nunca:
+
+```text
+plan_credits_balance += créditos mensais do plano       ← PROIBIDO
+```
+
+Crédito de plano não consumido dentro do mês é perdido. Este comportamento é deliberado e faz parte do modelo comercial.
+
+`purchased_credits_balance`, por outro lado, é sempre **incrementado** e jamais zerado por rotina de ciclo:
+
+```text
+Compra confirmada:
+
+purchased_credits_balance += créditos do pacote          ← incremento
+```
+
+> ⚠️ **Regra crítica:** Nunca somar `plan_credits_balance` e `purchased_credits_balance` em uma única coluna, campo de banco, atributo de Model, payload de API ou coluna de relatório. A distinção entre crédito que expira e crédito que não expira é informação de domínio e precisa sobreviver a toda a stack. Um acessor de conveniência para exibição agregada é permitido, desde que seja explicitamente derivado e nunca persistido.
+
+---
+
+# 12.3 Ordem de Consumo
+
+O débito consome sempre **`plan_credits_balance` primeiro** e recorre a `purchased_credits_balance` apenas para o que faltar.
+
+```text
+custo = C
+
+├── plan_credits_balance >= C
+│   └── plan_credits_balance -= C
+│
+└── plan_credits_balance < C
+    ├── restante = C - plan_credits_balance
+    ├── plan_credits_balance = 0
+    └── purchased_credits_balance -= restante
+```
+
+Um único débito pode, portanto, atravessar os dois saldos.
+
+A ordem existe para proteger o usuário: o crédito que expira é gasto antes do crédito que não expira.
+
+## Exemplo
+
+| Estado | plan | purchased |
+|--------|-----:|----------:|
+| Antes | 30 | 200 |
+| Débito de 50 | | |
+| Depois | 0 | 180 |
+
+## Regras
+
+- A ordem de consumo é inviolável e não configurável por plano.
+- O débito ocorre dentro da mesma transação e sob o mesmo lock pessimista descrito na Seção 12.13.
+- A verificação de saldo suficiente considera a **soma disponível** (`plan + purchased`), mas o débito respeita a ordem acima.
+
+---
+
+# 12.4 Renovação Mensal
+
+| Campo | Comportamento na virada do ciclo |
+|-------|----------------------------------|
+| `plan_credits_balance` | Atribuído ao total mensal do plano vigente |
+| `purchased_credits_balance` | Intocado |
+| `credits_used_this_month` | Zerado |
+
+O gatilho da renovação é o ciclo de cobrança da assinatura, não o dia 1º do calendário.
+
+Implementação do reset: **[A DEFINIR]** — Job agendado a ser especificado na sessão de Cashier do Mês 4. Ver Seção 12.15.
+
+---
+
+# 12.5 Feature Gating por Plano
+
+Cada plano concede acesso a um **subconjunto dos `pipeline_types`**, não apenas a um custo diferenciado.
+
+Esta é uma mudança em relação ao modelo anterior, no qual todos os planos acessavam todos os pipelines e diferiam apenas em volume de créditos.
+
+## Pipelines existentes
+
+Os `pipeline_types` válidos são os declarados em `App\Models\Execution::PIPELINE_TYPES`:
+
+```text
+brand_research
+briefing_generation
+image_generation
+copywriting_edit
+seo_optimization
+create_article
+create_post
+create_ad
+```
+
+## Fluxo de verificação
+
+```text
+Usuário solicita pipeline P
+
+↓
+
+Plano do usuário permite P?
+
+├── Não → HTTP 403 + CTA de upgrade
+│
+└── Sim → verificação de saldo (Seção 12.10)
+```
+
+## Regras
+
+- O gating precede a verificação de saldo. Um pipeline fora do plano nunca chega a consultar créditos e nunca cria uma Execution.
+- Saldo insuficiente retorna **402**; pipeline fora do plano retorna **403**. Os dois casos são distintos e não devem compartilhar código de erro nem mensagem.
+- O mapeamento plano → pipelines permitidos nunca pode ser hardcoded em Controllers, Livewire, Jobs ou Enums. A fonte é a mesma tabela de configuração comercial descrita na Seção 12.14.
+- A modelagem exata desse mapeamento (coluna em `plan_limits`, tabela associativa `plan_pipeline_types` ou campo JSONB) permanece **[A DEFINIR]** e exige ADR antes da implementação.
+
+---
+
+# 12.6 Planos Comerciais
+
+Fonte: `.claude/docs/PLANOS.md`.
+
+Os planos vigentes do Arkion são três:
+
+| Plano | Foco | Público |
+|-------|------|---------|
+| **Arkion Copy & Briefing** | Trilha de texto — pesquisa, estratégia, briefing e conteúdo escrito | Influenciadores, copywriters, criadores de conteúdo, gestores de tráfego solo |
+| **Arkion Studio Visual** | Trilha visual — identidade, personagens, imagem e vídeo | Designers, editores de vídeo, criadores de identidade visual |
+| **Arkion Full Pass** | Acesso integral às duas trilhas + cursos da Tiny Academy | Criadores avançados, agências |
+
+---
+
+## Preços
+
+| Plano | BRL / mês | USD / mês | Marca adicional | Pacote de créditos recomendado |
+|-------|----------:|----------:|----------------:|-------------------------------:|
+| Arkion Copy & Briefing | R$ 39,90 | US$ 12,90 | R$ 14,99 | R$ 19,00 |
+| Arkion Studio Visual | R$ 59,90 | US$ 24,90 | R$ 14,99 | R$ 32,90 |
+| Arkion Full Pass | R$ 119,90 | **[A DEFINIR]** | R$ 14,99 | R$ 43,90 |
+
+### Marca adicional
+
+O valor de **R$ 14,99/mês por marca adicional é idêntico nos três planos** e não escala com o preço da assinatura.
+
+Uma marca adicional é um `Project` extra — de topo ou sub-brand da hierarquia da Seção 19. A cobrança é pela Brand, não pela posição dela na árvore: uma sub-brand custa o mesmo que uma marca de topo.
+
+O saldo de créditos permanece único e do usuário (Seção 19.3). Marcas adicionais ampliam o número de contextos de trabalho, nunca o saldo.
+
+### Pacote de créditos recomendado
+
+Cada plano tem um pacote de créditos avulsos sugerido como *upsell* no fluxo de contratação. Os pacotes são registros de `credit_packages` (Seção 12.9) e creditam `purchased_credits_balance`.
+
+A **quantidade de créditos** de cada pacote está marcada como `"X"` no `PLANOS.md` e permanece **[A DEFINIR]** — apenas o preço está fixado.
+
+---
+
+## Pipelines Habilitados por Plano
+
+O feature gating da Seção 12.5 opera sobre `App\Models\Execution::PIPELINE_TYPES`.
+
+| `pipeline_type` | Copy & Briefing | Studio Visual | Full Pass |
+|-----------------|:---------------:|:-------------:|:---------:|
+| `brand_research` | ✅ | ❌ | ✅ |
+| `briefing_generation` | ✅ | ❌ | ✅ |
+| `create_article` | ✅ | ❌ | ✅ |
+| `copywriting_edit` | **[A DEFINIR]** | ❌ | ✅ |
+| `seo_optimization` | **[A DEFINIR]** | ❌ | ✅ |
+| `create_post` | **[A DEFINIR]** | ❌ | ✅ |
+| `create_ad` | **[A DEFINIR]** | ❌ | ✅ |
+| `image_generation` | ❌ | ✅ | ✅ |
+
+O **Full Pass libera todos os pipelines** — é a definição literal do plano no `PLANOS.md` ("todos os recursos liberados"), e as células **[A DEFINIR]** das outras colunas não o afetam.
+
+### Origem de cada ✅
+
+| Recurso no `PLANOS.md` | `pipeline_type` |
+|------------------------|-----------------|
+| Pesquisa de marketing, Buyer Persona | `brand_research` |
+| Geração de Briefings | `briefing_generation` |
+| Geração de Artigos | `create_article` |
+| Geração de imagens | `image_generation` |
+
+### Por que quatro células estão [A DEFINIR]
+
+O `PLANOS.md` lista **recursos comerciais**, não `pipeline_types`. Quatro recursos do plano Copy & Briefing não têm correspondência inequívoca:
+
+| Recurso | Ambiguidade |
+|---------|-------------|
+| Estratégia de social media | Pode significar acesso a `create_post` ou apenas a tela de estratégia (`app/Livewire/Marketing/SocialStrategy.php`), sem geração de peça. |
+| Estratégia de tráfego pago | Mesma ambiguidade em relação a `create_ad`. |
+| — | `copywriting_edit` e `seo_optimization` não aparecem em nenhuma lista de recursos, apesar de existirem como pipelines e terem custo definido na Seção 12.7. |
+
+Resolver antes de implementar o gating. Marcar ✅ por analogia seria conceder acesso pago sem decisão comercial.
+
+### Recursos sem pipeline correspondente
+
+Estes recursos do `PLANOS.md` **não possuem `pipeline_type`** em `Execution::PIPELINE_TYPES`:
+
+| Recurso | Plano | Situação |
+|---------|-------|----------|
+| Edição de imagens | Studio Visual | Sem pipeline. **[A DEFINIR]** |
+| Storyboard | Studio Visual | Sem pipeline. **[A DEFINIR]** |
+| Geração de vídeos | Studio Visual | Sem pipeline. **[A DEFINIR]** |
+| Edição de vídeos | Studio Visual | Sem pipeline. **[A DEFINIR]** |
+
+Cada um exige um novo `pipeline_type`, uma linha em `plan_limits` e um workflow no n8n. Enquanto não existirem, o Studio Visual entrega apenas `image_generation` como pipeline de IA — o que torna esses quatro itens **bloqueadores do lançamento comercial do plano**, não trabalho opcional.
+
+### Recursos que não são pipelines
+
+Brand Core, Visual Identity, Produtos, Personagens e mascotes são **áreas da interface** — telas de Brand, mapeadas na Seção 10.13 — e não consomem créditos. Aparecem nas listas do `PLANOS.md` como parte da proposta de valor, mas não entram no feature gating por `pipeline_type`.
+
+Cursos da **Tiny Academy** (Full Pass) são conteúdo externo à plataforma. A forma de entrega e de controle de acesso é **[A DEFINIR]**.
+
+---
+
+## Créditos Mensais por Plano
+
+| Plano | Créditos / mês |
+|-------|---------------:|
+| Arkion Copy & Briefing | **[A DEFINIR]** |
+| Arkion Studio Visual | **[A DEFINIR]** |
+| Arkion Full Pass | **[A DEFINIR]** |
+
+**Esta pendência é deliberada e não deve ser preenchida por inferência.**
+
+O `PLANOS.md` usa `"X"` como placeholder porque o número ainda não foi decidido. A decisão depende de **medição de uso real**: registrar o consumo de cada ferramenta em planilha para apurar a média por ação — ação pendente da call de **7 de agosto de 2026**.
+
+Sem essa medição, qualquer número escolhido é arbitrário e define errado tanto a margem quanto a percepção de valor do plano. Nenhuma implementação de billing, de `plan_limits` por plano ou de renovação mensal (Seção 12.4) pode assumir um valor provisório.
+
+O mesmo vale para a quantidade de créditos dos pacotes recomendados acima.
+
+---
+
+## Plano Enterprise
+
+O tratamento de créditos ilimitados (`plan_limits.credits = null`) permanece implementado conforme a Seção 12.15.
+
+O `PLANOS.md` não menciona um plano Enterprise — os três planos comerciais acima são a oferta completa. A relação entre o comportamento *unlimited* já implementado e essa oferta é **[A DEFINIR]**: pode ser um plano negociado fora do catálogo público ou um resíduo a ser removido.
+
+---
+
+# 12.7 Consumo por Ação
 
 | Ação | Créditos |
 |-------|----------:|
@@ -5538,22 +5920,78 @@ O custo deve ser obtido dinamicamente da tabela `plan_limits`.
 
 ---
 
-# 12.4 Armazenamento do Saldo
+# 12.8 Armazenamento do Saldo
 
-O saldo disponível é armazenado diretamente na tabela `users`.
+Os saldos são armazenados diretamente na tabela `users`.
 
-Campos identificados:
+| Campo | Finalidade | Estado |
+|--------|------------|--------|
+| `plan_credits_balance` | Saldo do plano, renovado mensalmente, não cumulativo | Migration pendente |
+| `purchased_credits_balance` | Saldo comprado, nunca expira | Migration pendente |
+| `credits_used_this_month` | Consumo mensal agregado (métrica de exibição) | Implementado |
 
-| Campo | Finalidade |
-|--------|------------|
-| credits_balance | Saldo disponível |
-| credits_used_this_month | Consumo mensal |
+## Divergência com a implementação atual
 
-Não há documentação indicando uma tabela separada para ledger de créditos.
+O código em produção ainda utiliza uma **única** coluna `users.credits_balance` (migration `0001_01_01_000000_create_users_table`), consumida por `App\Services\CreditService`.
+
+A migração para o modelo de dois saldos é trabalho de código, não desta sessão de documentação, e envolve:
+
+1. migration adicionando `plan_credits_balance` e `purchased_credits_balance`;
+2. backfill de `credits_balance` para `plan_credits_balance`;
+3. reescrita de `CreditService::deduct()` para aplicar a ordem da Seção 12.3 dentro do lock pessimista existente;
+4. remoção de `credits_balance` em migration posterior, após o backfill validado.
+
+Não há tabela de ledger de créditos. Toda a rastreabilidade de consumo depende de `executions` e de `admin_action_logs`.
 
 ---
 
-# 12.5 Validação Antes de Cada Ação
+# 12.9 Tabela `credit_packages`
+
+Pacotes de créditos avulsos são administráveis pelo painel administrativo e vivem em tabela própria.
+
+## Propósito
+
+Permitir que a operação crie, renomeie, reprecifique e desative pacotes de crédito **sem deploy de código**, exatamente como `plan_limits` faz para os custos de ação.
+
+## Estrutura Conceitual
+
+| Campo | Tipo | Papel |
+|-------|------|-------|
+| `id` | bigint | PK |
+| `name` | string | Nome comercial apresentado ao usuário (em inglês, Seção 10.1.1) |
+| `credits` | unsignedInteger | Quantidade creditada em `purchased_credits_balance` |
+| `price_cents` | unsignedInteger | Preço em centavos |
+| `currency` | string(3) | Moeda ISO 4217 |
+| `is_active` | boolean | Controla a exibição no catálogo |
+| `sort_order` | unsignedInteger | Ordem de apresentação |
+| `external_price_id` | string, nullable | Identificador do preço no gateway de pagamento |
+| `created_at` / `updated_at` | timestamps | Laravel padrão |
+
+## Regras
+
+- Créditos adquiridos por um pacote **sempre** creditam `purchased_credits_balance`, jamais `plan_credits_balance`.
+- Um pacote desativado (`is_active = false`) desaparece do catálogo mas nunca é excluído — compras históricas precisam manter a referência.
+- Alterar o preço de um pacote nunca reprecifica compras passadas.
+- Toda alteração administrativa em `credit_packages` é registrada em `admin_action_logs` (Seção 14).
+- A modelagem definitiva — incluindo a decisão sobre `external_price_id`, que depende do gateway escolhido na Seção 12.13 — permanece **[A DEFINIR]** até a sessão de Cashier do Mês 4.
+
+## Pacotes Recomendados por Plano
+
+O `PLANOS.md` define um pacote de *upsell* por plano. Os preços estão fixados; as quantidades de crédito, não:
+
+| Plano | Preço do pacote | Créditos |
+|-------|----------------:|---------:|
+| Arkion Copy & Briefing | R$ 19,00 | **[A DEFINIR]** |
+| Arkion Studio Visual | R$ 32,90 | **[A DEFINIR]** |
+| Arkion Full Pass | R$ 43,90 | **[A DEFINIR]** |
+
+A quantidade depende da mesma medição de uso descrita na Seção 12.6. Não inferir.
+
+Nada impede que o catálogo tenha outros pacotes além destes três — `credit_packages` é uma tabela administrável, e a associação "pacote recomendado para o plano X" é apresentação, não uma restrição de compra.
+
+---
+
+# 12.10 Validação Antes de Cada Ação
 
 Fluxo obrigatório:
 
@@ -5566,53 +6004,62 @@ Pipeline solicitado
 
 ↓
 
-EnsureCreditBalance
+Feature gating do plano (Seção 12.5)
 
-↓
-
-Consulta plan_limits
-
-↓
-
-Consulta users.credits_balance
-
-↓
-
-Saldo suficiente?
-
-├── Não → HTTP 402 + CTA
+├── Pipeline fora do plano → HTTP 403 + CTA de upgrade
 │
-└── Sim → Continuação da execução
+└── Pipeline permitido
+
+    ↓
+
+    EnsureCreditBalance
+
+    ↓
+
+    Consulta plan_limits
+
+    ↓
+
+    Consulta plan_credits_balance + purchased_credits_balance
+
+    ↓
+
+    Saldo somado suficiente?
+
+    ├── Não → HTTP 402 + CTA "Buy AI Credits"
+    │
+    └── Sim → Continuação da execução
 ```
 
-Nenhuma ação que consuma créditos pode ignorar este middleware.
+Nenhuma ação que consuma créditos pode ignorar esta sequência.
 
 ---
 
-# 12.6 Débito de Créditos
+# 12.11 Débito de Créditos
 
-O momento exato em que ocorre o débito não está explicitamente definido.
+O débito ocorre na criação da Execution, antes de qualquer contato com o n8n, conforme registrado na Seção 12.16.
 
-Permanece:
+Independentemente da implementação:
 
-**[A DEFINIR]**
-
-Independentemente da implementação, o débito deve refletir o valor registrado em `plan_limits`.
+- o valor debitado é sempre o registrado em `plan_limits`;
+- a ordem de consumo é sempre a da Seção 12.3;
+- os dois saldos são atualizados na mesma transação e sob o mesmo lock.
 
 ---
 
-# 12.7 Créditos Insuficientes
+# 12.12 Créditos Insuficientes
 
-Quando o saldo for insuficiente:
+Quando a soma dos dois saldos for insuficiente:
 
 - a execução não deve ser criada;
 - nenhuma chamada ao n8n deve ocorrer;
+- nenhum dos dois saldos deve ser parcialmente debitado;
 - retornar HTTP 402;
 - exibir CTA **"Buy AI Credits"**.
 
 ---
 
-# 12.8 Compra de Créditos Adicionais
+# 12.13 Compra de Créditos Adicionais
 
 A interface disponibiliza um botão permanente na Sidebar:
 
@@ -5631,7 +6078,11 @@ Buy AI Credits
 
 ↓
 
-Stripe Checkout
+Catálogo de credit_packages ativos
+
+↓
+
+Checkout do gateway
 
 ↓
 
@@ -5639,26 +6090,35 @@ Pagamento
 
 ↓
 
-Webhook Stripe
+Webhook do gateway
 
 ↓
 
-Laravel Cashier
+Laravel
 
 ↓
 
-Atualização do saldo
+purchased_credits_balance += credit_packages.credits
 ```
 
-A estratégia de incremento do saldo após a compra não está detalhada na documentação.
+## Infraestrutura de Pagamento
 
-**[A DEFINIR]**
+**[A DEFINIR]** — a plataforma de cobrança para créditos avulsos ainda não foi escolhida. As alternativas em avaliação são:
+
+| Alternativa | Consideração |
+|-------------|--------------|
+| **Stripe Checkout one-time** | Reaproveita o Stripe já adotado para assinaturas (Seção 13.3) e o Laravel Cashier já previsto na stack. Exige tratar pagamentos avulsos fora do fluxo de subscription do Cashier. |
+| **Lemon Squeezy** | Atua como Merchant of Record, absorvendo a apuração de impostos sobre vendas internacionais. Introduz um segundo gateway e um segundo conjunto de webhooks na arquitetura. |
+
+**Decisão adiada para a sessão de Cashier do Mês 4.** Nenhuma implementação de compra de créditos avulsos pode começar antes desta decisão, pois ela determina o formato de `credit_packages.external_price_id`, o contrato do webhook de confirmação e a modelagem do registro da compra.
+
+A assinatura mensal dos planos permanece no Stripe + Laravel Cashier, decisão já fixada e não reaberta por esta pendência.
 
 ---
 
-# 12.9 Fonte da Verdade
+# 12.14 Fonte da Verdade
 
-Os custos das ações nunca devem ser codificados em:
+Os custos das ações e o mapeamento de pipelines por plano nunca devem ser codificados em:
 
 - constantes;
 - enums;
@@ -5674,23 +6134,31 @@ plan_limits
 
 com possibilidade de cache em Redis.
 
+O catálogo de pacotes avulsos tem como fonte oficial:
+
+```
+credit_packages
+```
+
 ---
 
-> ⚠️ **Regra crítica:** Nunca hardcode valores de créditos por ação. Todo custo deve ser consultado na tabela `plan_limits` (preferencialmente via cache Redis), garantindo que alterações comerciais possam ser realizadas sem mudanças no código da aplicação.
+> ⚠️ **Regra crítica:** Nunca hardcode valores de créditos por ação, volumes mensais de plano, preços de pacote ou listas de pipelines permitidos. Todo custo e todo gating devem ser consultados na configuração persistida (preferencialmente via cache Redis), garantindo que alterações comerciais possam ser realizadas sem mudanças no código da aplicação.
 
 ---
 
-# 12.10 Registro de Implementação — Pendências do CreditService
+# 12.15 Registro de Implementação — Pendências do CreditService
 
-- **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar).
-- **`PlanLimit::forAction()` ignora o plano do usuário** — busca o primeiro registro da action, sem escopar por `plan`. Corrigir quando houver precificação diferenciada por plano: mudará a chave de cache de `plan_limits:{action}` para `plan_limits:{plan}:{action}` e exigirá ADR antes da implementação.
+- **Dois saldos ainda não implementados**: `CreditService` opera sobre a coluna única `users.credits_balance`. A migração descrita na Seção 12.8 é pré-requisito das Seções 12.2, 12.3 e 12.4.
+- **Feature gating ainda não implementado**: hoje qualquer plano pode solicitar qualquer `pipeline_type` válido. Não existe verificação de 403 por plano em `ExecutionController@store` nem em `BriefingForm`.
+- **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar). O mesmo Job passa a ser responsável pela atribuição de `plan_credits_balance` descrita na Seção 12.4.
+- **`PlanLimit::forAction()` ignora o plano do usuário** — busca o primeiro registro da action, sem escopar por `plan`. Corrigir quando houver precificação diferenciada por plano: mudará a chave de cache de `plan_limits:{action}` para `plan_limits:{plan}:{action}` e exigirá ADR antes da implementação. Os três planos comerciais da Seção 12.6 tornam essa correção obrigatória.
 - **`plan_limits.credits` permanece NOT NULL no SQLite** — a migration que remove a restrição é exclusiva do PostgreSQL, de modo que `PlanLimitSeeder` (que grava `credits = null` para o plano enterprise) não pode ser executado na suíte de testes. Os testes que precisam de custo registram apenas a linha da action que exercitam.
 
 ---
 
-# 12.11 Registro de Implementação — Momento do Débito
+# 12.16 Registro de Implementação — Momento do Débito
 
-As Seções 6.9 e 12.6 registram o momento exato do débito como **[A DEFINIR]**. A implementação em `App\Http\Controllers\Api\ExecutionController@store` adota o **débito na criação da Execution**, antes de qualquer contato com o n8n:
+As Seções 6.9 e 12.11 registram o momento do débito. A implementação em `App\Http\Controllers\Api\ExecutionController@store` adota o **débito na criação da Execution**, antes de qualquer contato com o n8n:
 
 ```text
 canExecute()  →  transação { Execution::create(queued) + CreditService::deduct() }  →  commit  →  Job
@@ -5699,15 +6167,17 @@ canExecute()  →  transação { Execution::create(queued) + CreditService::dedu
 Duas consequências desenham a escolha:
 
 - **A verificação otimista e o débito definitivo são etapas distintas.** `canExecute()` decide o fluxo (402 versus continuação); a garantia real vem do lock pessimista dentro de `deduct()`. Duas requisições simultâneas do mesmo usuário nunca gastam o mesmo crédito.
-- **Criação e débito compartilham uma transação.** Se o saldo real, lido sob lock, não cobrir o custo, a Execution criada instantes antes desaparece com o rollback — a Seção 12.7 exige que saldo insuficiente não deixe execução alguma para trás.
+- **Criação e débito compartilham uma transação.** Se o saldo real, lido sob lock, não cobrir o custo, a Execution criada instantes antes desaparece com o rollback — a Seção 12.12 exige que saldo insuficiente não deixe execução alguma para trás.
 
 O Job só é despachado após o commit: um Worker que lesse a Execution antes dela existir no banco falharia em `findOrFail`.
 
-**Não implementado:** política de estorno em caso de falha do pipeline. A Seção 6.2 registra o tema como **[A DEFINIR]**; hoje uma Execution que falha no n8n mantém o crédito debitado. Decidir antes do lançamento comercial.
+Quando os dois saldos forem implementados, a ordem de consumo da Seção 12.3 deve ser aplicada **dentro** deste mesmo lock. Ler um saldo fora do lock e debitar o outro dentro dele reabre exatamente a corrida que o lock existe para fechar.
+
+**Não implementado:** política de estorno em caso de falha do pipeline. A Seção 6.2 registra o tema como **[A DEFINIR]**; hoje uma Execution que falha no n8n mantém o crédito debitado. Decidir antes do lançamento comercial. O estorno precisará devolver o crédito ao saldo de origem — um débito que atravessou os dois saldos exige estorno proporcional a cada um.
 
 ---
 
-# 12.12 Registro de Implementação — Escopo da Brand em Listagens
+# 12.17 Registro de Implementação — Escopo da Brand em Listagens
 
 O middleware `EnsureActiveProject` previsto na `CLAUDE.md` §4 ainda não existe, e não há mecanismo de sessão que fixe a Brand ativa do lado do servidor.
 
@@ -5716,6 +6186,8 @@ Enquanto ele não centraliza esse contexto, `App\Http\Requests\Execution\IndexEx
 1. `project_id` da query string, quando informado — autorizado por `ProjectPolicy@view`, de modo que a Brand de outro usuário devolve 403;
 2. na ausência dele, a Brand marcada como ativa em `projects.is_active`;
 3. sem nenhuma das duas, 422 com mensagem em português.
+
+> A mensagem em português citada no item 3 é anterior à regra de idioma da Seção 10.1.1 e constitui dívida técnica: deve ser traduzida para inglês quando o Form Request for tocado.
 
 A consulta escopa simultaneamente por `user_id` e `project_id`, conforme a Seção 5.12 e a regra 10 da `CLAUDE.md`. Quando `EnsureActiveProject` for implementado, essa resolução migra para o middleware e o Form Request passa a apenas validar o filtro.
 
@@ -5726,7 +6198,7 @@ A consulta escopa simultaneamente por `user_id` e `project_id`, conforme a Seç�
 
 ## 13.1 Visão Geral
 
-O Tiny AI Lab integra-se com serviços especializados para autenticação, cobrança, automação, inteligência artificial, monitoramento e disponibilidade.
+O Arkion integra-se com serviços especializados para autenticação, cobrança, automação, inteligência artificial, monitoramento e disponibilidade.
 
 Toda integração externa deve obedecer ao seguinte princípio arquitetural:
 
@@ -6156,7 +6628,7 @@ Não interfere no funcionamento do sistema.
 
 ## 14.1 Propósito
 
-O Painel Administrativo é a interface interna de operação do Tiny AI Lab.
+O Painel Administrativo é a interface interna de operação do Arkion.
 
 Ele existe para que a operação do produto — suporte, correção de saldo, inspeção de conta e diagnóstico de execuções — seja realizada dentro do domínio Laravel, sujeita às mesmas Policies, Services e regras de negócio da aplicação, e **nunca** através de acesso manual ao banco de dados.
 
@@ -6206,7 +6678,7 @@ Consequência de ordenação: o Painel Administrativo depende da conclusão da f
 
 ## 14.5 Divisão de Responsabilidade — Metabase vs Painel Livewire
 
-A operação interna do Tiny AI Lab é atendida por duas ferramentas distintas, com fronteira explícita.
+A operação interna do Arkion é atendida por duas ferramentas distintas, com fronteira explícita.
 
 | | Metabase | Painel Administrativo (Livewire) |
 |--|----------|----------------------------------|
@@ -6271,7 +6743,7 @@ Esta lacuna deve ser resolvida por uma ADR aprovada **antes** da introdução do
 
 ## 15.1 Objetivo
 
-O Tiny AI Lab deve ser disponibilizado como Progressive Web App (PWA), permitindo instalação em dispositivos compatíveis e melhorando a experiência de uso em desktop e mobile.
+O Arkion deve ser disponibilizado como Progressive Web App (PWA), permitindo instalação em dispositivos compatíveis e melhorando a experiência de uso em desktop e mobile.
 
 A arquitetura continua sendo uma aplicação web; o PWA não substitui uma aplicação nativa.
 
@@ -6289,10 +6761,10 @@ Campos obrigatórios identificados:
 
 ```json
 {
-  "name": "Tiny AI Lab",
-  "short_name": "Tiny AI Lab",
-  "theme_color": "#111111",
-  "background_color": "#111111"
+  "name": "Arkion",
+  "short_name": "Arkion",
+  "theme_color": "#d2691e",
+  "background_color": "#f4f4f6"
 }
 ```
 
@@ -6864,6 +7336,18 @@ Qualquer implementação que as viole deve ser considerada incorreta.
 
 ---
 
+**NUNCA** some `plan_credits_balance` e `purchased_credits_balance` em uma única coluna persistida.
+
+**SEMPRE** mantenha os dois saldos separados e debite o saldo do plano primeiro (Seção 12.3).
+
+---
+
+**NUNCA** permita que um usuário execute um pipeline fora do seu plano.
+
+**SEMPRE** verifique o feature gating antes do saldo, retornando 403 (fora do plano) e não 402 (sem saldo).
+
+---
+
 ## Segurança
 
 **NUNCA** aceite callbacks sem validar `X-N8N-Secret`.
@@ -6924,21 +7408,29 @@ Broadcast
 
 ---
 
-**NUNCA** substitua a fonte oficial.
+**NUNCA** substitua as fontes oficiais.
 
-**SEMPRE** utilize **Inter**.
+**SEMPRE** utilize **Newsreader** (`font-serif`) em títulos `H1`–`H5` e **Inter** (`font-sans`) em corpo de texto e UI.
 
 ---
 
-**NUNCA** inicialize a aplicação em modo claro.
+**NUNCA** inicialize a aplicação com a classe `dark` fixa no `<html>`.
 
-**SEMPRE** aplique a classe:
+**SEMPRE** trate o Light mode como estado inicial e o Dark mode como variante `dark:`:
 
 ```html
-<html class="dark">
+<html>
 ```
 
-como estado inicial.
+**NUNCA** utilize os tokens do Design System anterior (`#111111`, `#FF5500`).
+
+**SEMPRE** utilize a paleta da Seção 10.4.
+
+---
+
+**NUNCA** exiba texto em português em rotas de produto.
+
+**SEMPRE** escreva a interface do cliente final em inglês (Seção 10.1.1). O painel administrativo é a única exceção.
 
 ---
 
@@ -6978,7 +7470,157 @@ como estado inicial.
 
 ---
 
-> ⚠️ **Regra crítica:** Este Software Architecture Document é a fonte única de verdade para agentes de IA responsáveis pela implementação do Tiny AI Lab. Quando uma informação não estiver explicitamente definida neste documento, a implementação deve utilizar o marcador **[A DEFINIR]** como indicação de lacuna arquitetural, em vez de inferir ou inventar comportamentos.
+> ⚠️ **Regra crítica:** Este Software Architecture Document é a fonte única de verdade para agentes de IA responsáveis pela implementação do Arkion. Quando uma informação não estiver explicitamente definida neste documento, a implementação deve utilizar o marcador **[A DEFINIR]** como indicação de lacuna arquitetural, em vez de inferir ou inventar comportamentos.
+
+
+# 19. Hierarquia de Marcas (Umbrella Brands)
+
+## 19.1 Visão Geral
+
+O Arkion permite que uma Brand seja **filha de outra Brand** do mesmo usuário.
+
+O caso de uso é a *umbrella brand*: uma marca guarda-chuva que abriga marcas menores — linhas de produto, submarcas regionais, spin-offs — cada uma com identidade e conteúdo próprios, mas pertencentes à mesma operação comercial.
+
+```text
+Acme Group                    (umbrella brand — parent_project_id = null)
+├── Acme Coffee               (sub-brand    — parent_project_id = Acme Group)
+├── Acme Tea                   (sub-brand    — parent_project_id = Acme Group)
+└── Acme Roasters              (sub-brand    — parent_project_id = Acme Group)
+
+Northwind                     (brand de topo, sem filhas)
+```
+
+Uma sub-brand é, para todos os efeitos de domínio, uma Brand completa. A hierarquia adiciona **organização**, não um novo tipo de entidade.
+
+---
+
+# 19.2 Modelagem
+
+A relação é auto-referencial na tabela `projects`:
+
+| Coluna | Tipo | Constraints |
+|--------|------|-------------|
+| `parent_project_id` | bigint | FK `projects.id`, **nullable** |
+
+```php
+// App\Models\Project
+
+public function parent(): BelongsTo
+{
+    return $this->belongsTo(Project::class, 'parent_project_id');
+}
+
+public function children(): HasMany
+{
+    return $this->hasMany(Project::class, 'parent_project_id');
+}
+```
+
+## Regras de Integridade
+
+- `parent_project_id` nulo significa Brand de topo. É o estado padrão e o estado de toda Brand criada antes desta seção.
+- Quando preenchido, o Project referenciado **deve pertencer ao mesmo `user_id`**. Apontar para a Brand de outro usuário é uma violação de isolamento e deve ser rejeitado na validação, não apenas pela FK.
+- Um Project nunca pode ser seu próprio pai.
+- Ciclos são proibidos.
+- A política de cascata ao excluir uma umbrella brand com filhas é **[A DEFINIR]**, assim como a política de retenção geral da Seção 4.4.
+- A profundidade máxima da hierarquia é **[A DEFINIR]**. Até que seja decidida, nenhum código deve assumir recursão arbitrária nem assumir um único nível.
+
+> ⚠️ **Regra crítica:** A verificação de que o parent pertence ao mesmo usuário é responsabilidade da `ProjectPolicy` e do Form Request, não da constraint de banco. Uma FK para `projects.id` aceita qualquer Project do sistema, inclusive de outro usuário.
+
+---
+
+# 19.3 Créditos
+
+**Sub-brands não possuem saldo próprio.**
+
+Os dois saldos da Seção 12.2 — `plan_credits_balance` e `purchased_credits_balance` — vivem em `users` e são compartilhados por todas as Brands do usuário, de topo ou não.
+
+```text
+User
+├── plan_credits_balance         ← único
+└── purchased_credits_balance    ← único
+    │
+    ├── Acme Group        consome deste saldo
+    ├── Acme Coffee       consome deste saldo
+    └── Acme Tea          consome deste saldo
+```
+
+## Consequências
+
+- Uma execução disparada dentro de uma sub-brand debita exatamente o mesmo saldo que uma execução disparada na umbrella brand.
+- Não existe alocação, cota ou reserva de créditos por Brand.
+- O feature gating por plano (Seção 12.5) também é do usuário, não da Brand: uma sub-brand nunca tem acesso a pipelines que o plano do usuário não permite, e nunca perde acesso a pipelines que ele permite.
+- O indicador de créditos da Sidebar (Seção 10.12) exibe o mesmo par de saldos independentemente da Brand ativa.
+
+Nenhuma coluna de crédito pode ser adicionada a `projects`.
+
+---
+
+## Cobrança de Marcas Adicionais
+
+A assinatura de qualquer um dos três planos (Seção 12.6) inclui um número de marcas **[A DEFINIR]**. Marcas além desse limite custam **R$ 14,99/mês cada**, valor idêntico nos três planos.
+
+A cobrança é por Brand, independentemente da posição na árvore: uma sub-brand custa exatamente o mesmo que uma marca de topo. `parent_project_id` não altera preço.
+
+Marcas adicionais ampliam o número de contextos de trabalho e **nunca** o saldo de créditos — o saldo continua sendo um só, do usuário.
+
+Quantas marcas cada plano inclui antes de começar a cobrar o adicional é **[A DEFINIR]**: o `PLANOS.md` fixa o preço do adicional mas não a franquia inicial.
+
+---
+
+# 19.4 Dados de Domínio
+
+Sub-brands possuem **dados próprios e integralmente isolados**.
+
+| Dado | Escopo |
+|------|--------|
+| Briefing | `project_id` |
+| Brand assets (identidade visual, personagens, produtos) | `project_id` |
+| Pesquisas e estratégia | `project_id` |
+| Executions | `project_id` |
+| Video references | `project_id` |
+
+A regra 10 da `CLAUDE.md` e a Seção 10.15 continuam valendo sem exceção:
+
+```php
+Execution::query()
+    ->where('project_id', $activeProject->id);
+```
+
+> ⚠️ **Regra crítica:** A hierarquia **nunca** amplia o escopo de uma consulta. Consultar a umbrella brand não retorna dados das sub-brands, e consultar uma sub-brand não retorna dados da umbrella brand. `parent_project_id` organiza a apresentação; jamais entra na cláusula `where` de uma listagem de domínio como forma de agregar conteúdo entre Brands.
+
+Qualquer necessidade futura de visão consolidada entre uma umbrella brand e suas filhas é uma funcionalidade nova, exige ADR, e não pode ser introduzida relaxando o escopo por `project_id`.
+
+---
+
+# 19.5 Brand Ativa
+
+A hierarquia não altera o modelo de Brand ativa.
+
+- Existe exatamente **uma** Brand ativa por sessão.
+- Uma umbrella brand pode ser a Brand ativa, e nesse caso o usuário vê apenas os dados dela.
+- Selecionar uma sub-brand troca o `project_id` do contexto como qualquer outra troca de Brand.
+- Não existe estado de "umbrella brand ativa mais sub-brand ativa".
+
+O `BrandSwitcher` (Seção 10.15) apresenta as sub-brands aninhadas sob a respectiva umbrella brand, mas cada entrada da lista continua sendo uma seleção única e exclusiva.
+
+---
+
+# 19.6 Estado da Implementação
+
+**Nada desta seção está implementado.**
+
+| Item | Estado |
+|------|--------|
+| Coluna `parent_project_id` | Migration pendente |
+| Relações `parent()` / `children()` no Model `Project` | Pendente |
+| Validação "parent pertence ao mesmo usuário" | Pendente |
+| Prevenção de ciclos | Pendente |
+| Aninhamento no `BrandSwitcher` | Pendente |
+| Política de cascata na exclusão | **[A DEFINIR]** |
+| Profundidade máxima | **[A DEFINIR]** |
+
+Toda Brand existente hoje é, por definição, uma Brand de topo com `parent_project_id` nulo. A introdução da coluna é retrocompatível e não exige backfill.
 
 
 # APÊNDICES
@@ -7505,7 +8147,7 @@ Nenhum Pull Request ou geração automática de código deve ser considerado con
 
 # Apêndice I — Critérios de Qualidade Arquitetural
 
-Uma implementação será considerada aderente ao Tiny AI Lab somente quando cumprir simultaneamente os seguintes critérios:
+Uma implementação será considerada aderente ao Arkion somente quando cumprir simultaneamente os seguintes critérios:
 
 - Conformidade com todas as ADRs documentadas;
 - Isolamento completo entre Brands;
@@ -7522,7 +8164,7 @@ Uma implementação será considerada aderente ao Tiny AI Lab somente quando cum
 
 # Apêndice J — Declaração de Fonte de Verdade
 
-Este Software Architecture Document constitui a especificação arquitetural oficial do projeto Tiny AI Lab.
+Este Software Architecture Document constitui a especificação arquitetural oficial do projeto Arkion.
 
 Toda implementação gerada por agentes de IA deve ser considerada derivada deste documento.
 
@@ -7534,7 +8176,7 @@ Qualquer alteração estrutural relevante na arquitetura deve ser refletida nest
 
 ## Objetivo
 
-Este apêndice estabelece as convenções oficiais de modelagem de dados, migrations e persistência utilizadas pelo Tiny AI Lab.
+Este apêndice estabelece as convenções oficiais de modelagem de dados, migrations e persistência utilizadas pelo Arkion.
 
 Todas as migrations futuras devem seguir estas regras. Agentes de IA não devem criar novas convenções.
 
@@ -8197,14 +8839,14 @@ return new class extends Migration
 
 ---
 
-> ⚠️ **Regra crítica:** A modelagem do banco de dados é parte da arquitetura do Tiny AI Lab. Nunca introduza novas convenções de nomenclatura, tipos, índices ou relacionamentos sem atualizar este SAD e registrar uma ADR correspondente. Toda migration futura deve ser consistente com as convenções definidas neste apêndice.
+> ⚠️ **Regra crítica:** A modelagem do banco de dados é parte da arquitetura do Arkion. Nunca introduza novas convenções de nomenclatura, tipos, índices ou relacionamentos sem atualizar este SAD e registrar uma ADR correspondente. Toda migration futura deve ser consistente com as convenções definidas neste apêndice.
 
 
 # Apêndice L — Convenções de Código PHP/Laravel
 
 ## Objetivo
 
-Este apêndice define o padrão oficial de organização do código PHP do Tiny AI Lab.
+Este apêndice define o padrão oficial de organização do código PHP do Arkion.
 
 Todos os agentes de IA devem seguir estas convenções rigorosamente. O objetivo é garantir que código gerado em sessões diferentes possua a mesma estrutura arquitetural, estilo e organização.
 
@@ -8246,7 +8888,7 @@ App
 
 ## Controllers
 
-O Tiny AI Lab é um monólito Blade + Livewire.
+O Arkion é um monólito Blade + Livewire.
 
 Portanto:
 
@@ -9036,14 +9678,14 @@ quando executarem qualquer operação potencialmente lenta.
 
 ---
 
-> ⚠️ **Regra crítica:** Controllers apenas coordenam o fluxo HTTP. Toda regra de negócio pertence ao domínio (Services, Models, Policies e Jobs). Se um Controller começa a decidir créditos, consultar APIs externas, montar queries complexas ou alterar múltiplas entidades, a implementação está em desacordo com a arquitetura oficial do Tiny AI Lab.
+> ⚠️ **Regra crítica:** Controllers apenas coordenam o fluxo HTTP. Toda regra de negócio pertence ao domínio (Services, Models, Policies e Jobs). Se um Controller começa a decidir créditos, consultar APIs externas, montar queries complexas ou alterar múltiplas entidades, a implementação está em desacordo com a arquitetura oficial do Arkion.
 
 
 # Apêndice M — Padrões Livewire 3
 
 ## Objetivo
 
-Este apêndice define os padrões oficiais para desenvolvimento de componentes Livewire 3 no Tiny AI Lab.
+Este apêndice define os padrões oficiais para desenvolvimento de componentes Livewire 3 no Arkion.
 
 Como o projeto utiliza **Laravel 11 + Blade + Livewire 3** como arquitetura principal de frontend, todos os componentes devem seguir exatamente estas convenções.
 
@@ -9384,7 +10026,7 @@ Isso evita:
 
 # M.5 Escutando Eventos Reverb
 
-O Tiny AI Lab utiliza Laravel Reverb.
+O Arkion utiliza Laravel Reverb.
 
 Componentes devem reagir apenas aos metadados necessários.
 
@@ -9788,7 +10430,7 @@ Nunca criar tailwind.config.js em sessões futuras.
 
 ## Objetivo
 
-Este apêndice define a estratégia oficial de utilização do Redis no Tiny AI Lab.
+Este apêndice define a estratégia oficial de utilização do Redis no Arkion.
 
 Todos os agentes de IA devem utilizar exatamente as mesmas chaves, TTLs e políticas de invalidação.
 
@@ -10368,4 +11010,4 @@ Se qualquer resposta for negativa, reavalie a necessidade de utilizar Redis.
 
 ---
 
-> ⚠️ **Regra crítica:** O Redis é uma camada de aceleração, nunca uma fonte de verdade. Toda informação crítica do Tiny AI Lab deve permanecer persistida no PostgreSQL. O sistema deve continuar funcional mesmo que todo o conteúdo do Redis seja perdido, restando apenas degradação de desempenho e reprocessamento de cache.
+> ⚠️ **Regra crítica:** O Redis é uma camada de aceleração, nunca uma fonte de verdade. Toda informação crítica do Arkion deve permanecer persistida no PostgreSQL. O sistema deve continuar funcional mesmo que todo o conteúdo do Redis seja perdido, restando apenas degradação de desempenho e reprocessamento de cache.
