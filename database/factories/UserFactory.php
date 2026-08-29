@@ -32,7 +32,8 @@ class UserFactory extends Factory
             'remember_token' => Str::random(10),
             'firebase_uid' => (string) Str::uuid(),
             'plan' => 'free',
-            'credits_balance' => 0,
+            'plan_credits_balance' => 0,
+            'purchased_credits_balance' => 0,
             'has_completed_setup' => false,
             'notify_on_completion' => true,
         ];
@@ -55,7 +56,7 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'free',
-            'credits_balance' => 500,
+            'plan_credits_balance' => 500,
         ]);
     }
 
@@ -66,7 +67,7 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'pro',
-            'credits_balance' => 10000,
+            'plan_credits_balance' => 10000,
         ]);
     }
 
@@ -77,7 +78,7 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'enterprise',
-            'credits_balance' => 0,
+            'plan_credits_balance' => 0,
         ]);
     }
 }

@@ -156,7 +156,7 @@ class ExecutionTest extends TestCase
 
         $user = User::factory()->create([
             'firebase_uid' => 'uid-owner',
-            'credits_balance' => 100,
+            'plan_credits_balance' => 100,
             'credits_used_this_month' => 0,
         ]);
         $project = Project::factory()->for($user)->create();
@@ -183,7 +183,7 @@ class ExecutionTest extends TestCase
         ]);
 
         $user->refresh();
-        $this->assertSame(100 - self::BRIEFING_COST, $user->credits_balance);
+        $this->assertSame(100 - self::BRIEFING_COST, $user->plan_credits_balance);
         $this->assertSame(self::BRIEFING_COST, $user->credits_used_this_month);
 
         Queue::assertPushed(
@@ -199,7 +199,7 @@ class ExecutionTest extends TestCase
 
         $user = User::factory()->create([
             'firebase_uid' => 'uid-broke',
-            'credits_balance' => self::BRIEFING_COST - 1,
+            'plan_credits_balance' => self::BRIEFING_COST - 1,
         ]);
         $project = Project::factory()->for($user)->create();
 
@@ -213,7 +213,42 @@ class ExecutionTest extends TestCase
 
         // SAD 12.7: nem Execution, nem fila, nem débito.
         $this->assertDatabaseCount('executions', 0);
-        $this->assertSame(self::BRIEFING_COST - 1, $user->refresh()->credits_balance);
+        $this->assertSame(self::BRIEFING_COST - 1, $user->refresh()->plan_credits_balance);
+        Queue::assertNothingPushed();
+    }
+
+    /**
+     * Gating e saldo são eixos independentes com desfechos distintos: pipeline
+     * fora do plano é 403 e nunca compartilha código nem CTA com o 402 de saldo
+     * insuficiente (SAD 12.5).
+     */
+    public function test_pipeline_outside_the_plan_returns_403(): void
+    {
+        Queue::fake();
+        $this->seedBriefingCost();
+
+        // Saldo de sobra: o bloqueio vem do plano, não do saldo.
+        $user = User::factory()->create([
+            'firebase_uid' => 'uid-gated',
+            'plan_credits_balance' => 10_000,
+        ]);
+        $project = Project::factory()->for($user)->create();
+
+        PlanLimit::query()
+            ->where('plan', $user->plan)
+            ->where('action', 'briefing_generation')
+            ->update(['is_enabled' => false]);
+
+        $this->postJson('/api/executions', [
+            'project_id' => $project->id,
+            'pipeline_type' => 'briefing_generation',
+        ], $this->actingAsFirebaseUser($user))
+            ->assertStatus(403)
+            ->assertJsonPath('error', 'feature_not_available');
+
+        // Nem Execution, nem fila, nem débito — o gating precede tudo.
+        $this->assertDatabaseCount('executions', 0);
+        $this->assertSame(10_000, $user->refresh()->plan_credits_balance);
         Queue::assertNothingPushed();
     }
 
@@ -222,7 +257,7 @@ class ExecutionTest extends TestCase
         Queue::fake();
         $this->seedBriefingCost();
 
-        $user = User::factory()->create(['firebase_uid' => 'uid-owner', 'credits_balance' => 100]);
+        $user = User::factory()->create(['firebase_uid' => 'uid-owner', 'plan_credits_balance' => 100]);
         $other = User::factory()->create(['firebase_uid' => 'uid-other']);
         $foreignProject = Project::factory()->for($other)->create();
 
@@ -241,7 +276,7 @@ class ExecutionTest extends TestCase
         Queue::fake();
         $this->seedBriefingCost();
 
-        $user = User::factory()->create(['firebase_uid' => 'uid-owner', 'credits_balance' => 100]);
+        $user = User::factory()->create(['firebase_uid' => 'uid-owner', 'plan_credits_balance' => 100]);
         $project = Project::factory()->for($user)->create();
 
         $this->postJson('/api/executions', [

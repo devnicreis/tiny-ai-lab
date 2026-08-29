@@ -10,7 +10,7 @@ use InvalidArgumentException;
  * Sincroniza a identidade provada pelo Firebase com o usuário local do domínio.
  *
  * O `firebase_uid` é a única chave de correlação. Atributos de domínio
- * (`plan`, `credits_balance`) pertencem ao Laravel e nunca são sobrescritos
+ * (`plan`, saldos de crédito) pertencem ao Laravel e nunca são sobrescritos
  * por claims vindas do Firebase.
  */
 class SyncFirebaseUserAction
@@ -43,7 +43,7 @@ class SyncFirebaseUserAction
         $user->save();
 
         if ($user->wasRecentlyCreated) {
-            // `plan` e `credits_balance` vêm dos defaults do schema.
+            // `plan` e os dois saldos de crédito vêm dos defaults do schema.
             $user->refresh();
         }
 

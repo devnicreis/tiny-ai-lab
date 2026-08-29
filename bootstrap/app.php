@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
 use App\Exceptions\N8nConnectionException;
 use App\Http\Middleware\VerifyFirebaseToken;
@@ -62,5 +63,20 @@ return Application::configure(basePath: dirname(__DIR__))
                 'available' => $e->available,
                 'cta' => 'Buy AI Credits',
             ], 402);
+        });
+
+        // Pipeline fora do plano é 403, nunca 402: o usuário precisa de
+        // upgrade, não de créditos. Códigos e mensagens permanecem distintos
+        // por exigência da Seção 12.5 (SAD 12.5 e L.6).
+        $exceptions->render(function (FeatureNotAvailableException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => 'This feature is not available on your current plan.',
+                'error' => 'feature_not_available',
+                'cta' => 'Upgrade plan',
+            ], 403);
         });
     })->create();

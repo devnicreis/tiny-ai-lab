@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
         // Stateless: apenas transporta Executions até o webhook do n8n.
         $this->app->singleton(N8nService::class);
 
-        // Stateless: todo estado vive em plan_limits e em users.credits_balance.
+        // Stateless: todo estado vive em plan_limits e nos saldos de users.
         $this->app->singleton(CreditService::class);
 
         // Stateless: orquestra CreditService, Policy e fila a cada chamada.

@@ -116,7 +116,7 @@ class PipelineEndToEndTest extends TestCase
     {
         return User::factory()->create([
             'firebase_uid' => 'uid-pipeline-owner',
-            'credits_balance' => $balance,
+            'plan_credits_balance' => $balance,
             'credits_used_this_month' => 0,
         ]);
     }
@@ -186,7 +186,7 @@ class PipelineEndToEndTest extends TestCase
 
         // O débito acontece na criação, a partir de `plan_limits` (SAD 12.5).
         $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->credits_balance);
+        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
         $this->assertSame(self::BRIEFING_COST, $user->credits_used_this_month);
 
         Queue::assertPushedOn(
@@ -274,7 +274,7 @@ class PipelineEndToEndTest extends TestCase
         // O callback não mexe em contabilidade: o débito continua sendo o único,
         // feito na criação a partir de `plan_limits` (CLAUDE.md regra 9).
         $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->credits_balance);
+        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
         $this->assertSame(self::BRIEFING_COST, $user->credits_used_this_month);
         $this->assertSame(self::BRIEFING_COST, $execution->credits_consumed);
 
@@ -367,7 +367,7 @@ class PipelineEndToEndTest extends TestCase
         // para que a decisão, quando vier, quebre o teste em vez de passar
         // despercebida.
         $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->credits_balance);
+        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
 
         // Depois de falhar, a Execution é imutável para o n8n: um callback
         // atrasado não a ressuscita (SAD 7.8).
@@ -410,7 +410,7 @@ class PipelineEndToEndTest extends TestCase
         Http::assertNothingSent();
         Event::assertNothingDispatched();
 
-        $this->assertSame(self::BRIEFING_COST - 1, $user->refresh()->credits_balance);
+        $this->assertSame(self::BRIEFING_COST - 1, $user->refresh()->plan_credits_balance);
         $this->assertSame(0, $user->credits_used_this_month);
     }
 }

@@ -49,12 +49,13 @@ class AuthTest extends TestCase
 
         $response->assertOk()
             ->assertJsonStructure([
-                'user' => ['id', 'email', 'name', 'plan', 'credits_balance'],
+                'user' => ['id', 'email', 'name', 'plan', 'plan_credits_balance', 'purchased_credits_balance'],
             ])
             ->assertJsonPath('user.email', 'nicolas@tinyailab.test')
             ->assertJsonPath('user.name', 'Nicolas Reis')
             ->assertJsonPath('user.plan', 'free')
-            ->assertJsonPath('user.credits_balance', 0);
+            ->assertJsonPath('user.plan_credits_balance', 0)
+            ->assertJsonPath('user.purchased_credits_balance', 0);
 
         $this->assertDatabaseHas('users', [
             'firebase_uid' => self::FIREBASE_UID,
@@ -99,7 +100,8 @@ class AuthTest extends TestCase
             ->assertJsonPath('user.id', $user->id)
             ->assertJsonPath('user.email', 'nicolas@tinyailab.test')
             ->assertJsonPath('user.plan', 'pro')
-            ->assertJsonPath('user.credits_balance', 10000);
+            ->assertJsonPath('user.plan_credits_balance', 10000)
+            ->assertJsonPath('user.purchased_credits_balance', 0);
 
         // O middleware sincroniza o usuário existente em vez de duplicá-lo.
         $this->assertDatabaseCount('users', 1);

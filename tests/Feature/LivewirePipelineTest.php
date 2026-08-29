@@ -44,7 +44,7 @@ class LivewirePipelineTest extends TestCase
 
     private function userWithBrand(int $balance = 100): array
     {
-        $user = User::factory()->create(['credits_balance' => $balance]);
+        $user = User::factory()->create(['plan_credits_balance' => $balance]);
         $brand = Project::factory()->for($user)->create(['is_active' => true]);
 
         return [$user, $brand];
@@ -91,7 +91,7 @@ class LivewirePipelineTest extends TestCase
             $execution->config['inputs']['objective'],
         );
 
-        $this->assertSame(40 - self::BRIEFING_COST, $user->fresh()->credits_balance);
+        $this->assertSame(40 - self::BRIEFING_COST, $user->fresh()->plan_credits_balance);
 
         Queue::assertPushed(ProcessBriefingJob::class);
     }
@@ -109,10 +109,41 @@ class LivewirePipelineTest extends TestCase
             ->call('submit')
             ->assertHasNoErrors()
             ->assertSet('upgradeMessage', fn (?string $message) => $message !== null
-                && str_contains($message, 'Créditos insuficientes'));
+                && str_contains($message, 'Insufficient credits'));
 
         $this->assertDatabaseCount('executions', 0);
-        $this->assertSame(1, $user->fresh()->credits_balance);
+        $this->assertSame(1, $user->fresh()->plan_credits_balance);
+
+        Queue::assertNothingPushed();
+    }
+
+    /**
+     * A mensagem do gating nunca cita saldo: comprar créditos não destravaria
+     * um pipeline fora do plano (SAD 12.5).
+     */
+    public function test_briefing_form_shows_upgrade_message_when_pipeline_is_outside_the_plan(): void
+    {
+        Queue::fake();
+        $this->seedBriefingCost();
+
+        [$user, $brand] = $this->userWithBrand(balance: 10_000);
+
+        PlanLimit::query()
+            ->where('plan', $user->plan)
+            ->where('action', 'briefing_generation')
+            ->update(['is_enabled' => false]);
+
+        Livewire::actingAs($user)
+            ->test(BriefingForm::class)
+            ->set($this->briefingInput($brand->id))
+            ->call('submit')
+            ->assertHasNoErrors()
+            ->assertSet('upgradeMessage', fn (?string $message) => $message !== null
+                && str_contains($message, 'not available on your current plan')
+                && ! str_contains($message, 'credits'));
+
+        $this->assertDatabaseCount('executions', 0);
+        $this->assertSame(10_000, $user->fresh()->plan_credits_balance);
 
         Queue::assertNothingPushed();
     }

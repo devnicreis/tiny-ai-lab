@@ -26,13 +26,18 @@ class InsufficientCreditsException extends RuntimeException
         parent::__construct('Insufficient credits for the requested action.');
     }
 
+    /**
+     * `available` é a soma dos dois saldos — a mesma grandeza que a verificação
+     * da Seção 12.10 compara com o custo. A soma existe apenas aqui, como
+     * diagnóstico; nenhum saldo somado é persistido (SAD 12.2).
+     */
     public static function for(User $user, string $action, int $required): self
     {
         return new self(
             userId: (int) $user->getKey(),
             action: $action,
             required: $required,
-            available: (int) $user->credits_balance,
+            available: (int) $user->plan_credits_balance + (int) $user->purchased_credits_balance,
         );
     }
 
