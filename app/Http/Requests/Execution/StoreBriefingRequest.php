@@ -58,12 +58,12 @@ class StoreBriefingRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'project_id.required' => 'Informe a Brand em que a execução será criada.',
-            'project_id.integer' => 'A Brand informada é inválida.',
-            'project_id.exists' => 'A Brand informada não existe.',
-            'pipeline_type.required' => 'Informe o tipo de pipeline.',
-            'pipeline_type.in' => 'Tipo de pipeline inválido.',
-            'config.array' => 'A configuração da execução deve ser um objeto.',
+            'project_id.required' => 'Please provide the Brand this execution will be created in.',
+            'project_id.integer' => 'The provided Brand is invalid.',
+            'project_id.exists' => 'The provided Brand does not exist.',
+            'pipeline_type.required' => 'Please provide the pipeline type.',
+            'pipeline_type.in' => 'Invalid pipeline type.',
+            'config.array' => 'The execution configuration must be an object.',
         ];
     }
 

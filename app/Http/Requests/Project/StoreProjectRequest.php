@@ -35,17 +35,17 @@ class StoreProjectRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'brand_name.required' => 'Informe o nome da marca.',
-            'brand_name.max' => 'O nome da marca deve ter no máximo 100 caracteres.',
-            'segment.required' => 'Informe o segmento da marca.',
-            'website.url' => 'O website deve ser uma URL válida.',
-            'description.max' => 'A descrição deve ter no máximo 1000 caracteres.',
-            'competitors.array' => 'Os concorrentes devem ser uma lista.',
-            'competitors.max' => 'Informe no máximo 5 concorrentes.',
-            'competitors.*.url' => 'Cada concorrente deve ser uma URL válida.',
-            'channels.array' => 'Os canais devem ser uma lista.',
-            'channels.min' => 'Informe ao menos um canal.',
-            'channels.*.in' => 'Canal inválido. Utilize instagram, tiktok, youtube ou linkedin.',
+            'brand_name.required' => 'Please provide the brand name.',
+            'brand_name.max' => 'The brand name must not exceed 100 characters.',
+            'segment.required' => 'Please provide the brand segment.',
+            'website.url' => 'The website must be a valid URL.',
+            'description.max' => 'The description must not exceed 1000 characters.',
+            'competitors.array' => 'Competitors must be a list.',
+            'competitors.max' => 'Please provide at most 5 competitors.',
+            'competitors.*.url' => 'Each competitor must be a valid URL.',
+            'channels.array' => 'Channels must be a list.',
+            'channels.min' => 'Please provide at least one channel.',
+            'channels.*.in' => 'Invalid channel. Use instagram, tiktok, youtube, or linkedin.',
         ];
     }
 }
