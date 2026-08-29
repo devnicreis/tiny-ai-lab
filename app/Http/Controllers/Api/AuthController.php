@@ -48,7 +48,11 @@ class AuthController extends Controller
     }
 
     /**
-     * @return array{user: array{id: int, email: string, name: string, plan: string, credits_balance: int}}
+     * Os dois saldos viajam separados: crédito que expira e crédito que não
+     * expira são informação de domínio distinta e nunca podem ser somados em um
+     * único campo de payload (SAD 12.2, CLAUDE.md regra 27).
+     *
+     * @return array{user: array{id: int, email: string, name: string, plan: string, plan_credits_balance: int, purchased_credits_balance: int}}
      */
     private function toPayload(User $user): array
     {
@@ -58,7 +62,8 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'name' => $user->name,
                 'plan' => $user->plan,
-                'credits_balance' => $user->credits_balance,
+                'plan_credits_balance' => $user->plan_credits_balance,
+                'purchased_credits_balance' => $user->purchased_credits_balance,
             ],
         ];
     }

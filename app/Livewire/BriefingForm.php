@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
 use App\Models\Execution;
 use App\Models\Project;
@@ -133,11 +134,17 @@ class BriefingForm extends Component
                 pipeline: $validated['pipeline_type'],
                 config: $this->config($validated),
             );
+        } catch (FeatureNotAvailableException) {
+            // Pipeline fora do plano: comprar créditos não destravaria a ação,
+            // então a mensagem aponta para upgrade e nunca cita saldo (SAD 12.5).
+            $this->upgradeMessage = 'This pipeline is not available on your current plan. Upgrade to unlock it.';
+
+            return null;
         } catch (InsufficientCreditsException $e) {
             // Saldo insuficiente não é erro de formulário: é convite a upgrade.
             // O componente só exibe o que o domínio já decidiu.
             $this->upgradeMessage = sprintf(
-                'Créditos insuficientes: esta execução requer %d crédito(s) e você possui %d. Faça upgrade do plano para continuar.',
+                'Insufficient credits: this execution requires %d credit(s) and you have %d. Upgrade your plan to continue.',
                 $e->required,
                 $e->available,
             );

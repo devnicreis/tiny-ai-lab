@@ -15,6 +15,7 @@ class Project extends Model
 
     protected $fillable = [
         'user_id',
+        'parent_project_id',
         'brand_name',
         'website',
         'description',
@@ -42,6 +43,28 @@ class Project extends Model
     public function executions(): HasMany
     {
         return $this->hasMany(Execution::class);
+    }
+
+    /**
+     * A umbrella brand desta Brand, quando houver (SAD 19.2).
+     *
+     * `null` significa Brand de topo — o estado padrão.
+     */
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(Project::class, 'parent_project_id');
+    }
+
+    /**
+     * As sub-brands abrigadas por esta Brand (SAD 19.2).
+     *
+     * Serve à apresentação — o aninhamento do BrandSwitcher. Nunca use esta
+     * relação para ampliar o escopo de uma consulta de domínio: consultar a
+     * umbrella brand não retorna dados das filhas (SAD 19.4, CLAUDE.md regra 29).
+     */
+    public function children(): HasMany
+    {
+        return $this->hasMany(Project::class, 'parent_project_id');
     }
 
     public function scopeForUser(Builder $query, int $userId): Builder
