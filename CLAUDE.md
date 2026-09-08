@@ -49,7 +49,7 @@ A arquitetura oficial é um monólito Laravel utilizando Blade + Livewire, execu
 7. Toda regra de domínio deve residir em Services, Actions, Jobs ou no próprio domínio.
 8. `App\Actions` é utilizado exclusivamente para operações de sincronização de autenticação. Exemplo canônico: `App\Actions\Auth\SyncFirebaseUserAction` (upsert do usuário Firebase no banco local, injetado no AuthController e no VerifyFirebaseToken middleware). Novas Actions fora do domínio de Auth exigem ADR antes de serem criadas.
 9. Nunca hardcode valores de consumo de créditos; utilizar sempre plan_limits cacheado.
-10. Toda consulta relacionada ao domínio deve ser obrigatoriamente escopada pela Brand ativa (project_id).
+10. Toda query de domínio é escopada pela organização ativa (`organization_id`) e pela Brand ativa (`project_id`), nunca por `user_id`. Não existe recurso pertencente diretamente a um usuário além da carteira pessoal de créditos.
 11. Nunca carregar executions.result em listagens; utilizar select() explícito contendo apenas os campos necessários.
 12. Nunca incluir executions.result em eventos de broadcast; transmitir apenas metadados da execução.
 13. Nunca armazenar tokens do Firebase em cache; sua revogação é gerenciada pelo próprio Firebase.
@@ -61,14 +61,19 @@ A arquitetura oficial é um monólito Laravel utilizando Blade + Livewire, execu
 19. Toda execução de IA deve ser assíncrona utilizando Redis, Horizon e Queue Workers.
 20. O modo Light é o padrão oficial; o elemento <html> inicia sem classe de tema e o modo Dark é aplicado exclusivamente pelo prefixo Tailwind `dark:`.
 21. As fontes oficiais do sistema são Newsreader (`font-serif`, títulos H1–H5) e Inter (`font-sans`, corpo e UI); nenhuma outra tipografia pode ser introduzida sem uma ADR aprovada.
-22. `is_admin` é um boolean na tabela `users`, não uma tabela separada. Reavaliar apenas via ADR se o sistema crescer para múltiplos funcionários com hierarquia de permissões.
+22. `users.is_admin` é um boolean na tabela `users`, não uma tabela separada. Reavaliar apenas via ADR se o sistema crescer para múltiplos funcionários com hierarquia de permissões. `users.is_admin` é staff da plataforma Arkion; papel em organização é `organization_user.role`. Nunca use um no lugar do outro — um não implica o outro em nenhuma direção.
 23. Rotas `/admin/*` nunca compartilham Controllers com rotas de Web ou de Api. Sempre em `App\Http\Controllers\Admin`.
 24. Toda ação administrativa que altera dados de um usuário (créditos, plano, status de conta) deve ser registrada em `admin_action_logs` antes de retornar sucesso ao admin.
 25. Toda tela voltada ao cliente final usa inglês. Painel administrativo (uso interno) pode usar português.
 26. Nunca usar tokens de cor antigos (#111111, #FF5500) — usar exclusivamente a paleta documentada na Seção 10 do SAD.
-27. Créditos têm dois saldos: `plan_credits_balance` e `purchased_credits_balance`. Nunca somar os dois em uma única coluna.
+27. Créditos têm três carteiras: `organizations.plan_credits_balance`, `organizations.purchased_credits_balance` e `users.purchased_credits_balance`. Nunca somar as três em uma única coluna. Ordem de débito: plano da org, comprado pela org, pessoal do usuário. Nunca inverta.
 28. Ícones são SVG inline com `stroke="currentColor" stroke-width="0.3"` e tamanho `w-5 h-5` ou `w-4 h-4`; nenhum outro peso ou tamanho é permitido.
-29. Um Project pode ter `parent_project_id` opcional apontando para outro Project do mesmo usuário; sub-brands compartilham o saldo do usuário e nunca ampliam o escopo de consultas por `project_id`.
+29. Um Project pode ter `parent_project_id` opcional apontando para outro Project da **mesma organização**; sub-brands compartilham o saldo da organização e nunca ampliam o escopo de consultas por `project_id`.
+30. A Organização é a entidade de faturamento. Nenhuma Marca existe fora de uma Organização: `projects.organization_id` é NOT NULL, não há marca órfã e não há vínculo direto entre User e Project. `projects.user_id` é apenas auditoria de criação.
+31. A carteira pessoal nunca é debitada sem `confirm_personal_credits = true` explícito na requisição. Sem a flag, a API responde 409 com o breakdown por carteira. O bloqueio é no backend, não apenas na UI, e o valor pessoal é recalculado dentro da transação de débito.
+32. Uma organização nunca fica sem Admin. O último Admin não pode ser removido nem rebaixado a Member. Verificar o invariante dentro da transação.
+33. `organizations.plan` é NULLABLE; `plan = null` significa sem assinatura ativa. A verificação de plano nulo (`NoActivePlanException`, 402) acontece ANTES do feature gating (`FeatureNotAvailableException`, 403), que acontece antes do saldo (`InsufficientCreditsException`, 402). Inverter essa ordem é falha de segurança, porque linha ausente em `plan_limits` significa habilitado. Nunca colapsar os três bloqueios em uma mensagem genérica.
+34. O contexto de sessão tem duas variáveis: `active_organization_id` e `active_project_id`. A Brand ativa deve pertencer à organização ativa — validar em todo acesso.
 
 ## 4. Estrutura de Diretórios
 

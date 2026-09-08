@@ -80,7 +80,10 @@ Antes de aceitar qualquer código gerado pelo Codex, verificar obrigatoriamente:
 - [ ] Policies utilizadas.
 - [ ] Webhook protegido por `hash_equals()`.
 - [ ] Nenhum segredo exposto.
-- [ ] Queries limitadas ao `project_id`.
+- [ ] Queries escopadas por `organization_id` (organização ativa) **e** `project_id` (Brand ativa).
+- [ ] Nenhuma query usa `user_id` como critério de isolamento.
+- [ ] A Brand ativa foi validada como pertencente à organização ativa.
+- [ ] O papel do usuário na organização foi verificado por Policy, não pela UI.
 
 ## Cache
 
@@ -112,15 +115,32 @@ Antes de aceitar qualquer código gerado pelo Codex, verificar obrigatoriamente:
 
 ## Créditos
 
-- [ ] `plan_credits_balance` e `purchased_credits_balance` permanecem colunas separadas.
-- [ ] O débito consome o saldo do plano antes do saldo comprado.
-- [ ] A renovação mensal **atribui** `plan_credits_balance` e nunca o incrementa.
-- [ ] `purchased_credits_balance` não é zerado por nenhuma rotina de ciclo.
-- [ ] Pipeline fora do plano retorna 403; saldo insuficiente retorna 402.
+- [ ] As três carteiras permanecem colunas separadas: `organizations.plan_credits_balance`, `organizations.purchased_credits_balance`, `users.purchased_credits_balance`.
+- [ ] O débito segue a ordem plano da org → comprado pela org → pessoal do usuário, sem inversão.
+- [ ] A renovação mensal **atribui** `organizations.plan_credits_balance` e nunca o incrementa.
+- [ ] Nenhum `purchased_credits_balance` é zerado por rotina de ciclo.
+- [ ] Nenhuma coluna de saldo de plano foi adicionada a `users`.
+- [ ] A carteira pessoal só é debitada com `confirm_personal_credits = true` na requisição.
+- [ ] A ausência da flag retorna **409** com breakdown por carteira, sem criar Execution nem debitar nada.
+- [ ] O valor debitado da carteira pessoal é recalculado dentro da transação, nunca reaproveitado do 409.
+- [ ] Organização sem plano retorna 402 (`NoActivePlanException`) **antes** de qualquer verificação de gating.
+- [ ] Pipeline fora do plano retorna 403 (`FeatureNotAvailableException`); saldo insuficiente retorna 402 (`InsufficientCreditsException`).
+- [ ] Os três bloqueios têm mensagens e CTAs distintos, nunca uma mensagem genérica.
+
+## Organizações
+
+- [ ] `projects.organization_id` é NOT NULL; nenhuma Marca foi criada fora de uma Organização.
+- [ ] Nenhuma relação de propriedade direta entre `User` e `Project` foi criada ou usada.
+- [ ] `users.is_admin` (staff da plataforma) e `organization_user.role` (papel na org) não foram confundidos.
+- [ ] O invariante "a organização nunca fica sem Admin" é verificado dentro da transação, sob lock.
+- [ ] O último Admin não pode ser removido, rebaixado, nem sair da organização.
+- [ ] Ações exclusivas de Admin (faturamento, créditos da org, membros, exclusão da org) estão protegidas por Policy.
+- [ ] O usuário novo recebe automaticamente a organização "Personal" com ele como Admin.
+- [ ] O seletor de organização fica oculto quando o usuário pertence a apenas uma organização.
 
 ## Hierarquia de Marcas
 
-- [ ] `parent_project_id` aponta para um Project do mesmo `user_id`.
+- [ ] `parent_project_id` aponta para um Project da mesma `organization_id`.
 - [ ] Nenhuma consulta usa `parent_project_id` para agregar dados entre Brands.
 - [ ] Nenhuma coluna de crédito foi adicionada a `projects`.
 
@@ -252,9 +272,17 @@ Motivo: todos os custos vêm da tabela `plan_limits`.
 
 ### 12.
 
-Executar queries sem filtro por `project_id`.
+Executar queries sem filtro por `organization_id` e `project_id`, ou usar `user_id` como critério de isolamento.
 
-Motivo: viola isolamento entre Brands.
+```php
+Project::where('user_id', auth()->id());                       // PROIBIDO
+Execution::where('user_id', auth()->id())->get();              // PROIBIDO
+
+Project::where('organization_id', $activeOrganization->id);    // correto
+Execution::where('project_id', $activeProject->id);            // correto
+```
+
+Motivo: viola o isolamento entre Organizações e entre Brands. `user_id` deixou de ser critério de propriedade — o único recurso que pertence diretamente a um usuário é a carteira pessoal de créditos. Ver `SAD.md`, Seções 20.2 e 20.6.
 
 ---
 
@@ -309,13 +337,13 @@ Motivo: a paleta antiga foi integralmente substituída. Usar exclusivamente os t
 
 ### 18.
 
-Somar os dois saldos de crédito em uma única coluna.
+Somar as três carteiras de crédito em uma única coluna.
 
 ```php
-$user->credits_balance = $plan + $purchased;   // PROIBIDO
+$user->credits_balance = $orgPlan + $orgPurchased + $personal;   // PROIBIDO
 ```
 
-Motivo: `plan_credits_balance` expira na virada do ciclo e `purchased_credits_balance` nunca expira. Consolidá-los destrói a informação que decide o que pode ser cobrado do usuário.
+Motivo: `organizations.plan_credits_balance` expira na virada do ciclo, `organizations.purchased_credits_balance` não expira e `users.purchased_credits_balance` é pessoal e portátil entre organizações. Consolidá-las destrói a informação que decide o que pode ser cobrado, de quem, e com qual autorização. Ver `SAD.md`, Seção 12.2.
 
 ---
 
@@ -348,7 +376,130 @@ Ampliar o escopo de uma consulta através de `parent_project_id`.
 Execution::whereIn('project_id', $brand->children->pluck('id'));   // PROIBIDO
 ```
 
-Motivo: a hierarquia de marcas organiza a apresentação, nunca o isolamento de dados. Cada Brand — inclusive sub-brand — permanece escopada pelo seu próprio `project_id`.
+Motivo: a hierarquia de marcas organiza a apresentação, nunca o isolamento de dados. Cada Brand — inclusive sub-brand — permanece escopada pelo seu próprio `project_id`, dentro da organização ativa.
+
+---
+
+### 22.
+
+Inverter a ordem de débito das carteiras de crédito.
+
+```php
+$user->purchased_credits_balance -= $cost;      // PROIBIDO — pessoal antes da org
+```
+
+Motivo: a ordem é plano da org → comprado pela org → pessoal do usuário. Gastar crédito pessoal antes do crédito da organização cobra do bolso errado. Ver `SAD.md`, Seção 12.3.
+
+---
+
+### 23.
+
+Debitar a carteira pessoal sem `confirm_personal_credits` explícito na requisição.
+
+```php
+// PROIBIDO — débito pessoal sem confirmação
+$this->deductFromPersonalWallet($user, $remaining);
+
+// correto — sem a flag, 409 com breakdown, nada é debitado
+if ($touchesPersonalWallet && ! $request->boolean('confirm_personal_credits')) {
+    throw new PersonalCreditsConfirmationRequiredException($breakdown);   // 409
+}
+```
+
+Motivo: a carteira pessoal nunca é debitada sem autorização explícita do usuário. O bloqueio é do backend: uma chamada direta à API, sem passar pelo modal, também é rejeitada. Ver `SAD.md`, Seção 12.19.
+
+---
+
+### 24.
+
+Debitar da carteira pessoal exatamente o valor informado no breakdown do 409.
+
+```php
+$personal = $request->input('breakdown.personal_credits');   // PROIBIDO
+$user->purchased_credits_balance -= $personal;
+```
+
+Motivo: a confirmação autoriza **usar a carteira pessoal nesta ação**, não um valor. Outro membro da organização pode ter gasto — ou um Admin pode ter comprado — créditos entre o aviso e a confirmação. O valor real é recalculado dentro da transação de débito. Ver `SAD.md`, Seção 12.19.
+
+---
+
+### 25.
+
+Verificar feature gating antes de verificar se a organização tem plano.
+
+```php
+// PROIBIDO — gating antes do plano nulo
+if ($this->planAllows($org->plan, $pipeline)) { ... }
+if (is_null($org->plan)) { ... }
+```
+
+Motivo: **falha de segurança**, não questão de estilo. A convenção "linha ausente em `plan_limits` significa habilitado" faria o gating liberar *todos* os pipelines para uma organização sem assinatura. A verificação de `plan === null` vem sempre primeiro. Ver `SAD.md`, Seção 12.18.
+
+---
+
+### 26.
+
+Colapsar os três estados de bloqueio em uma mensagem genérica.
+
+```blade
+{{-- PROIBIDO --}}
+<p>You cannot run this action.</p>
+```
+
+Motivo: sem plano, feature fora do plano e saldo insuficiente levam o usuário a três telas diferentes. Cada um tem exceção, código HTTP, mensagem e CTA próprios: `NoActivePlanException` (402, "Subscribe to a plan"), `FeatureNotAvailableException` (403, "Upgrade your plan"), `InsufficientCreditsException` (402, "Buy credits"). Ver `SAD.md`, Seção 12.12.
+
+---
+
+### 27.
+
+Usar `users.is_admin` como papel de organização, ou o contrário.
+
+```php
+if ($user->is_admin) { $org->subscribeToPlan(...); }        // PROIBIDO
+if ($org->isAdmin($user)) { return view('admin.users'); }   // PROIBIDO
+```
+
+Motivo: são dois eixos independentes. `users.is_admin` é staff da plataforma Arkion; `organization_user.role` é papel dentro de uma organização. Um não implica o outro em nenhuma direção. Ver `SAD.md`, Seção 20.7.
+
+---
+
+### 28.
+
+Deixar uma organização sem nenhum Admin.
+
+```php
+$org->members()->detach($lastAdmin->id);                        // PROIBIDO
+$org->members()->updateExistingPivot($lastAdmin->id, [
+    'role' => 'member',
+]);                                                             // PROIBIDO
+```
+
+Motivo: uma organização sem Admin é estado irrecuperável — ninguém mais pode assinar plano, comprar créditos para a org, gerenciar membros ou excluí-la. O último Admin não pode ser removido nem rebaixado, e a verificação ocorre dentro da transação, sob lock. Ver `SAD.md`, Seção 20.4.
+
+---
+
+### 29.
+
+Criar uma Marca sem organização, ou tratar `projects.user_id` como propriedade.
+
+```php
+Project::create(['user_id' => auth()->id(), 'name' => $name]);   // PROIBIDO
+$this->authorize($project->user_id === auth()->id());            // PROIBIDO
+```
+
+Motivo: nenhuma Marca existe fora de uma Organização. `projects.organization_id` é NOT NULL e é a coluna de propriedade; `projects.user_id` é apenas auditoria de quem criou. Ver `SAD.md`, Seção 20.2.
+
+---
+
+### 30.
+
+Aceitar uma Brand ativa que não pertence à organização ativa.
+
+```php
+session(['active_project_id' => $request->project_id]);   // PROIBIDO sem validar a org
+```
+
+Motivo: o contexto de sessão tem duas variáveis (`active_organization_id` e `active_project_id`) e a segunda precisa pertencer à primeira. A validação ocorre em todo acesso, não só na troca, e um par inválido é rejeitado — nunca corrigido silenciosamente. Ver `SAD.md`, Seção 20.5.
 
 ---
 
@@ -373,15 +524,21 @@ Motivo: a hierarquia de marcas organiza a apresentação, nunca o isolamento de 
 | Policies para autorização | Verificações espalhadas | Sim |
 | Queue para toda execução de IA | Processamento síncrono | Sim |
 | Custos de créditos em `plan_limits` | Valores hardcoded | Sim |
-| Escopo obrigatório por `project_id` | Dados globais | Sim |
+| Organização como entidade de faturamento | Usuário como entidade de faturamento | Sim |
+| Marca sempre pertencente a uma Organização | Marca pertencente ao usuário | Sim |
+| Dois papéis por organização: Admin e Member | RBAC granular por organização | Sim |
+| Escopo obrigatório por `organization_id` + `project_id` | Escopo por `user_id` / dados globais | Sim |
 | Modo Light como padrão, Dark como variante `dark:` | Dark First | Sim |
 | Newsreader (títulos) + Inter (corpo e UI) | Tipografia única | Sim |
 | Paleta `#d2691e` / `#9e6136` / `#6b4e3a` | Paleta `#111111` / `#FF5500` | Sim |
 | Interface do cliente final em inglês | Interface em português | Sim |
-| Dois saldos de crédito separados | Saldo único consolidado | Sim |
+| Três carteiras de crédito separadas | Saldo único consolidado / dois saldos no usuário | Sim |
+| Carteira pessoal só com `confirm_personal_credits` | Débito pessoal silencioso | Sim |
+| `organizations.plan` NULLABLE como estado inicial | Plano free permanente / trial automático | Sim |
+| Verificação de plano nulo antes do feature gating | Gating primeiro | Sim |
 | Feature gating de pipelines por plano | Diferenciação apenas por volume de créditos | Sim |
-| Sub-brands compartilham o saldo do usuário | Saldo por Brand | Sim |
-| `is_admin` boolean em `users` | Tabela de papéis / RBAC | Sim |
+| Sub-brands compartilham o saldo da organização | Saldo por Brand / saldo do usuário | Sim |
+| `users.is_admin` boolean em `users` (staff da plataforma) | Tabela de papéis / RBAC | Sim |
 | Controllers administrativos isolados em `Admin` | Reuso de Controllers Web ou Api | Sim |
 | Auditoria obrigatória em `admin_action_logs` | Ação administrativa sem rastro | Sim |
 

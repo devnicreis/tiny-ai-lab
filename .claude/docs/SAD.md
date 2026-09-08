@@ -1,11 +1,19 @@
 # Software Architecture Document (SAD)
 
 **Projeto:** Arkion  
-**Versão:** 2.0 (Living Document)  
+**Versão:** 2.1 (Living Document)  
 **Status:** Production Ready Architecture Specification  
 **Stack:** Laravel 11 + Livewire 3 + PostgreSQL + n8n + Redis + Reverb  
 **Última atualização:** Agosto/2026
 
+> **Revisão 2.1 — Organizações.** O Arkion adota um modelo de **Organizações** inspirado no Make.com:
+> a Organização é a entidade de faturamento, as Marcas pertencem à Organização e nunca ao usuário, e o
+> crédito passa a viver em **três carteiras** (plano da org → comprado pela org → carteira pessoal do usuário,
+> esta última só debitada com confirmação explícita). Foram reescritos: a **Seção 12** (créditos, planos e
+> os três estados de bloqueio), a nova **Seção 4.15** (`organizations` e `organization_user`) e a nova
+> **Seção 20** (Organizações e Hierarquia de Propriedade). Trechos superados da revisão 2.0 estão marcados
+> como **SUPERSEDED** e preservados como histórico. Nada desta revisão está implementado em código.
+>
 > **Revisão 2.0 — Rebranding e redesenho.** O produto passou de "Tiny AI Lab" para **Arkion**.
 > Três blocos foram reescritos: **Seção 10** (novo Design System — Light first, paleta `#d2691e`,
 > tipografia Newsreader + Inter, interface do cliente final em inglês), **Seção 12** (dois saldos
@@ -94,16 +102,33 @@ Os planos comerciais vigentes são **Arkion Copy & Briefing**, **Arkion Studio V
 
 ## 1.5 Conceitos Fundamentais
 
+### Organização
+
+A **entidade de faturamento** da plataforma e a dona de todas as Marcas.
+
+Uma Organização possui:
+
+- o plano assinado (ou nenhum — `plan = null`);
+- os créditos do plano e os créditos comprados para a operação;
+- os membros, cada um com um papel (`admin` ou `member`);
+- as Marcas.
+
+Toda operação do sistema acontece dentro de exatamente uma Organização ativa. Ver **Seção 20**.
+
+---
+
 ### Usuário
 
 Representa uma conta autenticada via Firebase.
 
-Cada usuário pode possuir:
+Cada usuário pode:
 
-- assinatura ativa;
-- múltiplas marcas;
-- histórico completo de execuções;
-- saldo de créditos.
+- pertencer a múltiplas organizações, com um papel em cada uma;
+- disparar execuções nas Marcas das organizações de que participa;
+- consultar o histórico completo de execuções da Brand ativa;
+- manter uma **carteira pessoal de créditos**, portátil entre organizações.
+
+O usuário **não é dono de Marcas** nem de assinatura. Marca e plano pertencem à Organização (Seção 20.2).
 
 ---
 
@@ -126,7 +151,7 @@ Toda operação do sistema acontece dentro de exatamente uma Brand ativa.
 
 ### Brand Ativa
 
-Embora um usuário possa possuir múltiplas Brands, existe sempre apenas uma Brand ativa durante uma sessão.
+Embora uma Organização possa possuir múltiplas Brands, existe sempre apenas uma Brand ativa durante uma sessão — e ela **precisa pertencer à Organização ativa** (Seção 20.5).
 
 Toda consulta ao banco deve ser automaticamente escopada pela Brand ativa.
 
@@ -965,7 +990,9 @@ A autenticação **não utiliza senha local**. O registro representa apenas a id
 | avatar_url | string | nullable | Foto do usuário |
 | locale | string | default 'en' | Idioma preferido |
 | theme | string | default 'dark' | Preferência de tema |
-| credits_balance | integer | default 0 | Saldo atual disponível |
+| credits_balance | integer | default 0 | **Legado.** Saldo único, a ser removido pela migração da Seção 12.8 |
+| purchased_credits_balance | integer | default 0 | **Carteira pessoal** — comprada pelo próprio usuário, nunca expira, portátil entre organizações (Seção 12.2). Migration pendente |
+| is_admin | boolean | default false | **Staff da plataforma Arkion**, nunca papel em organização (Seções 14.3 e 20.7) |
 | credits_used_this_month | integer | default 0 | Consumo mensal acumulado |
 | last_credit_reset_at | timestamp | nullable | Última renovação de créditos |
 | email_verified_at | timestamp | nullable | Compatibilidade Laravel |
@@ -991,11 +1018,14 @@ UNIQUE(email)
 
 ```
 User
- ├── hasMany(Project)
+ ├── belongsToMany(Organization) through organization_user   ← com role por organização
  ├── hasMany(Execution)
- ├── hasMany(Notification)
- └── hasOne(Subscription)
+ └── hasMany(Notification)
 ```
+
+> ⚠️ **Regra crítica:** `User hasMany(Project)` e `User hasOne(Subscription)` **deixam de existir** como relações de propriedade. A Marca pertence à Organização e a assinatura é da Organização (Seção 20.2). A **carteira pessoal de créditos** é o único recurso que pertence diretamente a um usuário.
+
+Nenhum saldo de plano existe em `users`: `plan_credits_balance` vive exclusivamente em `organizations` (Seção 12.2).
 
 ---
 
@@ -1027,9 +1057,9 @@ Cada Brand possui:
 - estratégias;
 - execuções.
 
-Um usuário pode possuir inúmeras Brands.
+Uma Organização pode possuir inúmeras Brands. **Nenhuma Brand existe fora de uma Organização** (Seção 20.2).
 
-A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
+A aplicação mantém exatamente **uma Brand ativa** durante cada sessão, e ela precisa pertencer à Organização ativa (Seção 20.5).
 
 ---
 
@@ -1038,7 +1068,8 @@ A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
 | Coluna | Tipo | Constraints |
 |---------|------|-------------|
 | id | bigint | PK |
-| user_id | bigint | FK users |
+| organization_id | bigint | FK organizations, **NOT NULL** |
+| user_id | bigint | FK users, nullable — apenas auditoria de criação |
 | parent_project_id | bigint | FK projects, **nullable** |
 | name | string | NOT NULL |
 | slug | string | UNIQUE |
@@ -1047,16 +1078,22 @@ A aplicação mantém exatamente **uma Brand ativa** durante cada sessão.
 | created_at | timestamp | NOT NULL |
 | updated_at | timestamp | NOT NULL |
 
-`parent_project_id` é auto-referencial e opcional. Quando preenchido, a Brand é uma **sub-brand** da Brand apontada, que precisa pertencer ao mesmo `user_id`. Quando nulo, a Brand é de topo. A hierarquia completa está documentada na Seção 19 — Hierarquia de Marcas (Umbrella Brands).
+`organization_id` é a coluna de propriedade da Brand e é **NOT NULL**: não existe marca órfã.
 
-**Estado:** migration pendente. A coluna é documentação de arquitetura; o schema atual ainda não a possui.
+`user_id` deixa de ser critério de propriedade e passa a significar apenas **quem criou a Brand** — dado de auditoria, nunca critério de autorização ou de escopo de consulta (Seção 20.2).
+
+`parent_project_id` é auto-referencial e opcional. Quando preenchido, a Brand é uma **sub-brand** da Brand apontada, que precisa pertencer à **mesma `organization_id`**. Quando nulo, a Brand é de topo. A hierarquia completa está documentada na Seção 19 — Hierarquia de Marcas (Umbrella Brands).
+
+> 🔁 **SUPERSEDED:** a regra "o parent precisa pertencer ao mesmo `user_id`" da revisão 2.0 foi substituída por "o parent precisa pertencer à mesma `organization_id`".
+
+**Estado:** migrations pendentes. As colunas são documentação de arquitetura; o schema atual ainda não as possui.
 
 ---
 
 ### Índices
 
 ```
-INDEX(user_id)
+INDEX(organization_id)
 
 INDEX(parent_project_id)
 
@@ -1068,7 +1105,7 @@ UNIQUE(slug)
 ### Relacionamentos
 
 ```
-User
+Organization
 
 ↓
 
@@ -1514,6 +1551,95 @@ Migrações futuras nunca devem depender da estrutura interna desses JSONs.
 ---
 
 > ⚠️ **Regra crítica:** O campo `result` pode conter dezenas de kilobytes de dados estruturados. Nunca carregue esse campo em consultas de listagem, dashboards ou tabelas administrativas. Utilize `select()` explícito e carregue o conteúdo completo apenas em páginas de visualização detalhada.
+
+---
+
+# 4.15 Tabelas `organizations` e `organization_user`
+
+A Organização é a entidade de faturamento da plataforma e a dona de todas as Marcas. As regras de propriedade, papéis e contexto de sessão estão na **Seção 20 — Organizações e Hierarquia de Propriedade**.
+
+**Estado:** migrations pendentes. Estas tabelas são documentação de arquitetura; o schema atual ainda não as possui.
+
+---
+
+## Tabela `organizations`
+
+### Propósito
+
+Representa a unidade de faturamento e de propriedade. Concentra o plano assinado e as duas carteiras de crédito da operação (Seção 12.2).
+
+### Colunas
+
+| Coluna | Tipo | Constraints | Descrição |
+|---------|------|-------------|-----------|
+| id | bigint | PK | Identificador interno |
+| name | string | NOT NULL | Nome da organização |
+| slug | string | UNIQUE, NOT NULL | Identificador legível |
+| plan | string | **nullable** | Plano assinado. `null` = sem assinatura ativa (Seção 12.18) |
+| plan_credits_balance | integer | default 0 | Créditos do plano — renovam mensalmente, não cumulativos |
+| purchased_credits_balance | integer | default 0 | Créditos comprados pela org — nunca expiram |
+| created_at | timestamp | NOT NULL | Auditoria |
+| updated_at | timestamp | NOT NULL | Auditoria |
+
+`plan` é **NULLABLE por decisão confirmada**. Toda organização recém-criada — inclusive a "Personal" automática — nasce sem plano. Ver Seção 12.18.
+
+### Índices
+
+```
+PRIMARY KEY (id)
+
+UNIQUE(slug)
+```
+
+### Relacionamentos
+
+```
+Organization
+ ├── belongsToMany(User) through organization_user
+ ├── hasMany(Project)
+ └── hasOne(Subscription)
+```
+
+---
+
+## Tabela `organization_user`
+
+### Propósito
+
+Pivot que registra a participação de um usuário em uma organização **e o papel dele nessa organização**. Um usuário pertence a N organizações, com um papel por organização.
+
+### Colunas
+
+| Coluna | Tipo | Constraints | Descrição |
+|---------|------|-------------|-----------|
+| id | bigint | PK | Identificador interno |
+| organization_id | bigint | FK organizations, NOT NULL, cascade | Organização |
+| user_id | bigint | FK users, NOT NULL, cascade | Usuário membro |
+| role | string | NOT NULL | `admin` ou `member` — nada além disso (Seção 20.4) |
+| created_at | timestamp | NOT NULL | Auditoria |
+| updated_at | timestamp | NOT NULL | Auditoria |
+
+### Índices
+
+```
+PRIMARY KEY (id)
+
+UNIQUE(organization_id, user_id)
+
+INDEX(user_id)
+```
+
+`UNIQUE(organization_id, user_id)` garante um único papel por usuário em cada organização.
+
+### Regras de Integridade
+
+- `role` aceita exclusivamente `admin` e `member`. A restrição vale no domínio (Enum + validação); a decisão entre `CHECK` constraint e Enum PostgreSQL nativo é **[A DEFINIR]**.
+- **Uma organização nunca pode ficar sem nenhum Admin** (Seção 20.4). O último Admin não pode ser removido nem rebaixado. O invariante é de domínio e deve ser verificado dentro da transação, sob lock — a constraint de banco não o expressa.
+- Remover a última participação de um usuário **não** o deixa sem organização em nenhum fluxo previsto; o destino da carteira pessoal nesse cenário é **[A DEFINIR]** (Seção 20.8).
+
+### Política de Retenção
+
+Excluir uma organização com Marcas e Executions é **[A DEFINIR]** (Seção 20.8).
 
 ---
 
@@ -2097,6 +2223,8 @@ delete
 restore
 ```
 
+A autorização verifica se o usuário é **membro da organização dona da Brand**, e não se `projects.user_id` é dele. Ações restritas a Admin da organização (Seção 20.4) verificam também `organization_user.role`.
+
 ---
 
 ## Escopo
@@ -2104,7 +2232,7 @@ restore
 Nunca basta verificar:
 
 ```
-user_id
+organization_id
 ```
 
 Também deve ser validado:
@@ -2113,7 +2241,9 @@ Também deve ser validado:
 project_id
 ```
 
-da Brand ativa.
+da Brand ativa, que precisa pertencer à organização ativa (Seção 20.5).
+
+> 🔁 **SUPERSEDED:** a revisão 2.0 exigia aqui a verificação de `user_id`. Ela é substituída pela verificação de `organization_id` — `user_id` deixou de ser critério de isolamento (Seção 20.6).
 
 ---
 
@@ -2150,14 +2280,16 @@ da Brand ativa.
 
 # 5.12 Segurança da Brand Ativa
 
-O sistema é Multi-Brand.
+O sistema é Multi-Organização e Multi-Brand.
 
-Isso significa que dois registros pertencentes ao mesmo usuário podem não pertencer ao mesmo contexto ativo.
+Isso significa que dois registros acessíveis ao mesmo usuário podem não pertencer ao mesmo contexto ativo.
+
+O contexto de sessão tem **duas** variáveis, `active_organization_id` e `active_project_id`, e a Brand ativa **precisa pertencer à organização ativa** (Seção 20.5).
 
 Toda consulta deve respeitar simultaneamente:
 
 ```
-user_id
+organization_id
 ```
 
 e
@@ -2170,7 +2302,7 @@ Exemplo correto:
 
 ```php
 Execution::query()
-    ->where('user_id', auth()->id())
+    ->where('organization_id', $activeOrganizationId)
     ->where('project_id', $activeProjectId);
 ```
 
@@ -2179,6 +2311,10 @@ Nunca:
 ```php
 Execution::whereUserId(auth()->id());
 ```
+
+> 🔁 **SUPERSEDED:** a revisão 2.0 desta seção exigia o par `user_id` + `project_id`. Com o modelo de Organizações, `user_id` **deixa de ser critério de isolamento** e é substituído por `organization_id` (Seção 20.6). O usuário precisa ser membro da organização ativa — verificação que antecede qualquer consulta de domínio.
+
+A coluna `executions.organization_id` (ou a derivação a partir de `projects.organization_id`) é **[A DEFINIR]** e será decidida na migração descrita na Seção 12.8.
 
 ---
 
@@ -5090,7 +5226,7 @@ Seleciona a Brand ativa.
 
 O conceito de Multi-Brand constitui uma das bases arquiteturais do Arkion.
 
-Todo usuário trabalha dentro de um Workspace composto por múltiplas Brands independentes.
+Todo usuário trabalha dentro da **organização ativa**, composta por múltiplas Brands independentes. O `BrandSwitcher` lista apenas as Brands da organização ativa; a troca de organização é feita pelo seletor de organização, exibido apenas quando o usuário pertence a mais de uma (Seção 20.3).
 
 Cada Brand possui seu próprio contexto de:
 
@@ -5114,6 +5250,8 @@ Portanto:
 
 **Estado da Brand ativa:** **[A DEFINIR]**
 
+O contexto de sessão tem duas variáveis, `active_organization_id` e `active_project_id`, e a segunda precisa pertencer à primeira em todo acesso (Seção 20.5). O mecanismo de persistência de ambas permanece **[A DEFINIR]**.
+
 ---
 
 ## Escopo das Queries
@@ -5127,7 +5265,7 @@ Execution::query()
     ->where('project_id', $activeProject->id);
 ```
 
-Nunca retornar registros de outra Brand, mesmo pertencentes ao mesmo usuário e mesmo quando uma for sub-brand da outra.
+Nunca retornar registros de outra Brand — nem de outra Organização —, mesmo quando uma Brand for sub-brand da outra.
 
 ---
 
@@ -5636,89 +5774,126 @@ O sistema **não limita o número de execuções mensais**.
 
 Cada operação consome uma quantidade específica de créditos, proporcional ao processamento computacional envolvido.
 
-O modelo comercial repousa sobre dois eixos independentes:
+**A entidade de faturamento é a Organização, não o usuário.** O plano, os créditos do plano e os créditos comprados para a operação pertencem à Organização (Seção 20). O usuário carrega apenas uma carteira pessoal de créditos comprados, que o acompanha entre as organizações das quais participa.
 
-| Eixo | Pergunta que responde |
-|------|-----------------------|
-| **Saldo de créditos** | Quanto o usuário ainda pode executar? |
-| **Feature gating** | Quais pipelines o plano do usuário permite executar? |
+O modelo comercial repousa sobre três eixos independentes, verificados **sempre nesta ordem**:
 
-Os dois eixos são verificados de forma independente e ambos precisam autorizar a operação. Saldo suficiente não concede acesso a um pipeline fora do plano; acesso ao pipeline não dispensa saldo.
+| Ordem | Eixo | Pergunta que responde | Bloqueio |
+|:-----:|------|-----------------------|----------|
+| 1 | **Plano ativo** | A organização ativa tem assinatura? | `NoActivePlanException` → **402** |
+| 2 | **Feature gating** | O plano da organização permite este pipeline? | `FeatureNotAvailableException` → **403** |
+| 3 | **Saldo de créditos** | As carteiras cobrem o custo da ação? | `InsufficientCreditsException` → **402** |
+
+Os três eixos são independentes e **todos** precisam autorizar a operação. Saldo suficiente não concede acesso a um pipeline fora do plano; acesso ao pipeline não dispensa saldo; e nenhum dos dois existe sem uma assinatura ativa.
+
+A ordem entre os eixos 1 e 2 é **regra de segurança**, não detalhe de implementação. Ver Seção 12.18.
 
 ---
 
-# 12.2 Os Dois Saldos de Crédito
+# 12.2 As Três Carteiras de Crédito
 
-Cada usuário possui **dois saldos separados**, nunca consolidados em uma única coluna.
+O saldo do Arkion é distribuído em **três carteiras separadas**, nunca consolidadas em uma única coluna.
 
-| Saldo | Origem | Renovação | Expira? |
-|-------|--------|-----------|---------|
-| `plan_credits_balance` | Assinatura mensal do plano | Reposto no início de cada ciclo de cobrança | **Sim** — não é cumulativo |
-| `purchased_credits_balance` | Compra avulsa de pacotes de crédito | Somado ao saldo existente no momento da compra | **Não** — nunca expira |
+| # | Carteira | Dono | Origem | Renovação | Expira? |
+|:-:|----------|------|--------|-----------|---------|
+| 1 | `organizations.plan_credits_balance` | Organização | Assinatura mensal do plano da org | Reposto no início de cada ciclo de cobrança | **Sim** — não é cumulativo |
+| 2 | `organizations.purchased_credits_balance` | Organização | Pacote comprado por um **Admin** para a org | Somado ao saldo existente na compra | **Não** — nunca expira |
+| 3 | `users.purchased_credits_balance` | Usuário | Pacote comprado pelo próprio usuário | Somado ao saldo existente na compra | **Não** — nunca expira |
+
+As duas primeiras carteiras são **da organização** e são compartilhadas por todos os membros e por todas as Marcas dela — de topo ou sub-brands (Seção 19).
+
+A terceira carteira é **pessoal e portátil**: acompanha o usuário para qualquer organização de que ele participe, e não é visível nem consumível por outros membros.
 
 ## Regra de não-acumulação
 
-`plan_credits_balance` é **substituído**, não incrementado, na renovação do ciclo:
+`organizations.plan_credits_balance` é **substituído**, não incrementado, na renovação do ciclo:
 
 ```text
 Renovação do ciclo:
 
-plan_credits_balance  =  créditos mensais do plano      ← atribuição
+organizations.plan_credits_balance  =  créditos mensais do plano      ← atribuição
 ```
 
 Nunca:
 
 ```text
-plan_credits_balance += créditos mensais do plano       ← PROIBIDO
+organizations.plan_credits_balance += créditos mensais do plano       ← PROIBIDO
 ```
 
 Crédito de plano não consumido dentro do mês é perdido. Este comportamento é deliberado e faz parte do modelo comercial.
 
-`purchased_credits_balance`, por outro lado, é sempre **incrementado** e jamais zerado por rotina de ciclo:
+As duas carteiras de crédito comprado são sempre **incrementadas** e jamais zeradas por rotina de ciclo:
 
 ```text
-Compra confirmada:
+Compra confirmada por Admin para a org:
 
-purchased_credits_balance += créditos do pacote          ← incremento
+organizations.purchased_credits_balance += créditos do pacote          ← incremento
+
+Compra confirmada pelo próprio usuário:
+
+users.purchased_credits_balance         += créditos do pacote          ← incremento
 ```
 
-> ⚠️ **Regra crítica:** Nunca somar `plan_credits_balance` e `purchased_credits_balance` em uma única coluna, campo de banco, atributo de Model, payload de API ou coluna de relatório. A distinção entre crédito que expira e crédito que não expira é informação de domínio e precisa sobreviver a toda a stack. Um acessor de conveniência para exibição agregada é permitido, desde que seja explicitamente derivado e nunca persistido.
+> ⚠️ **Regra crítica:** Nunca somar as três carteiras em uma única coluna, campo de banco, atributo de Model, payload de API ou coluna de relatório. A distinção entre crédito que expira e crédito que não expira, e entre crédito da organização e crédito pessoal, é informação de domínio e precisa sobreviver a toda a stack. Um acessor de conveniência para exibição agregada é permitido, desde que seja explicitamente derivado, nunca persistido, e desde que exiba a carteira pessoal separada da carteira da organização na interface.
+
+> 🔁 **SUPERSEDED — Dois saldos no usuário.** A versão 2.0 desta seção documentava dois saldos, ambos em `users`: `users.plan_credits_balance` e `users.purchased_credits_balance`. O modelo de Organizações (Seção 20) move o saldo do plano e o saldo comprado pela operação para `organizations`, e mantém em `users` apenas a carteira pessoal. O texto anterior está superado e não deve ser implementado; nenhuma coluna de saldo de plano existe em `users`.
 
 ---
 
 # 12.3 Ordem de Consumo
 
-O débito consome sempre **`plan_credits_balance` primeiro** e recorre a `purchased_credits_balance` apenas para o que faltar.
+O débito percorre as três carteiras **sempre nesta ordem**, e nunca em outra:
 
 ```text
 custo = C
 
-├── plan_credits_balance >= C
-│   └── plan_credits_balance -= C
-│
-└── plan_credits_balance < C
-    ├── restante = C - plan_credits_balance
-    ├── plan_credits_balance = 0
-    └── purchased_credits_balance -= restante
+1. organizations.plan_credits_balance        ← crédito que expira, da org
+2. organizations.purchased_credits_balance   ← crédito que não expira, da org
+3. users.purchased_credits_balance           ← carteira pessoal — exige confirmação explícita
 ```
 
-Um único débito pode, portanto, atravessar os dois saldos.
+```text
+custo = C
 
-A ordem existe para proteger o usuário: o crédito que expira é gasto antes do crédito que não expira.
+├── org.plan >= C
+│   └── org.plan -= C
+│
+└── org.plan < C
+    ├── restante = C - org.plan
+    ├── org.plan = 0
+    │
+    ├── org.purchased >= restante
+    │   └── org.purchased -= restante
+    │
+    └── org.purchased < restante
+        ├── restante2 = restante - org.purchased
+        ├── org.purchased = 0
+        └── users.purchased -= restante2      ← SOMENTE com confirm_personal_credits = true
+```
+
+Um único débito pode, portanto, atravessar as três carteiras.
+
+A ordem existe para proteger o usuário em dois eixos: o crédito que expira é gasto antes do crédito que não expira, e o crédito da organização é gasto antes do crédito pessoal.
 
 ## Exemplo
 
-| Estado | plan | purchased |
-|--------|-----:|----------:|
-| Antes | 30 | 200 |
-| Débito de 50 | | |
-| Depois | 0 | 180 |
+| Estado | org.plan | org.purchased | user.purchased |
+|--------|---------:|--------------:|---------------:|
+| Antes | 30 | 10 | 200 |
+| Débito de 50 | | | |
+| Depois | 0 | 0 | 190 |
+
+Neste exemplo o débito toca a carteira pessoal, e portanto **exige confirmação explícita** antes de ocorrer (Seção 12.19).
 
 ## Regras
 
-- A ordem de consumo é inviolável e não configurável por plano.
-- O débito ocorre dentro da mesma transação e sob o mesmo lock pessimista descrito na Seção 12.13.
-- A verificação de saldo suficiente considera a **soma disponível** (`plan + purchased`), mas o débito respeita a ordem acima.
+- A ordem de consumo é inviolável e não configurável por plano, por organização ou por usuário.
+- **Nunca inverter a ordem.** Consumir a carteira pessoal antes das carteiras da organização é uma violação de domínio, não uma otimização.
+- O débito ocorre dentro da mesma transação e sob o mesmo lock pessimista descrito na Seção 12.16, que passa a travar a linha da organização **e** a linha do usuário quando a carteira pessoal for tocada.
+- A verificação de saldo suficiente considera a **soma disponível** das carteiras autorizadas para a requisição; o débito respeita a ordem acima.
+- O terceiro nível nunca é debitado sem `confirm_personal_credits = true` na requisição. Ver Seção 12.19.
+
+> 🔁 **SUPERSEDED — Ordem de débito de dois níveis.** A versão 2.0 documentava um débito de dois níveis (`plan_credits_balance` → `purchased_credits_balance`, ambos em `users`) e sem nenhuma etapa de confirmação. Esse fluxo está superado: a ordem agora tem **três níveis** e o terceiro exige confirmação explícita do usuário. Nenhuma implementação deve seguir o modelo de dois níveis.
 
 ---
 
@@ -5726,11 +5901,14 @@ A ordem existe para proteger o usuário: o crédito que expira é gasto antes do
 
 | Campo | Comportamento na virada do ciclo |
 |-------|----------------------------------|
-| `plan_credits_balance` | Atribuído ao total mensal do plano vigente |
-| `purchased_credits_balance` | Intocado |
+| `organizations.plan_credits_balance` | Atribuído ao total mensal do plano vigente da organização |
+| `organizations.purchased_credits_balance` | Intocado |
+| `users.purchased_credits_balance` | Intocado |
 | `credits_used_this_month` | Zerado |
 
-O gatilho da renovação é o ciclo de cobrança da assinatura, não o dia 1º do calendário.
+O gatilho da renovação é o ciclo de cobrança da assinatura **da organização**, não o dia 1º do calendário. Organizações diferentes renovam em datas diferentes; a carteira pessoal do usuário não participa de nenhum ciclo.
+
+Uma organização com `plan = null` não tem ciclo de cobrança e não recebe nenhuma atribuição de `plan_credits_balance` (Seção 12.18).
 
 Implementação do reset: **[A DEFINIR]** — Job agendado a ser especificado na sessão de Cashier do Mês 4. Ver Seção 12.15.
 
@@ -5739,6 +5917,8 @@ Implementação do reset: **[A DEFINIR]** — Job agendado a ser especificado na
 # 12.5 Feature Gating por Plano
 
 Cada plano concede acesso a um **subconjunto dos `pipeline_types`**, não apenas a um custo diferenciado.
+
+O gating é do **plano da organização ativa**, nunca do usuário: o mesmo usuário pode ter acesso a `image_generation` em uma organização e não ter em outra.
 
 Esta é uma mudança em relação ao modelo anterior, no qual todos os planos acessavam todos os pipelines e diferiam apenas em volume de créditos.
 
@@ -5760,21 +5940,30 @@ create_ad
 ## Fluxo de verificação
 
 ```text
-Usuário solicita pipeline P
+Usuário solicita pipeline P na organização ativa O
 
 ↓
 
-Plano do usuário permite P?
+O.plan é null?
 
-├── Não → HTTP 403 + CTA de upgrade
+├── Sim → NoActivePlanException → HTTP 402 + CTA "Subscribe to a plan"
 │
-└── Sim → verificação de saldo (Seção 12.10)
+└── Não
+
+    ↓
+
+    O plano de O permite P?
+
+    ├── Não → FeatureNotAvailableException → HTTP 403 + CTA "Upgrade your plan"
+    │
+    └── Sim → verificação de saldo (Seção 12.10)
 ```
 
 ## Regras
 
+- **A verificação de plano nulo precede o gating.** Ver Seção 12.18 — é regra de segurança, porque a convenção "linha ausente em `plan_limits` significa habilitado" concederia acesso irrestrito a uma organização sem assinatura se a ordem fosse invertida.
 - O gating precede a verificação de saldo. Um pipeline fora do plano nunca chega a consultar créditos e nunca cria uma Execution.
-- Saldo insuficiente retorna **402**; pipeline fora do plano retorna **403**. Os dois casos são distintos e não devem compartilhar código de erro nem mensagem.
+- Sem plano retorna **402**; pipeline fora do plano retorna **403**; saldo insuficiente retorna **402** com exceção distinta. Os três casos são distintos e não devem compartilhar código de erro, exceção nem mensagem (Seção 12.12).
 - O mapeamento plano → pipelines permitidos nunca pode ser hardcoded em Controllers, Livewire, Jobs ou Enums. A fonte é a mesma tabela de configuração comercial descrita na Seção 12.14.
 - A modelagem exata desse mapeamento (coluna em `plan_limits`, tabela associativa `plan_pipeline_types` ou campo JSONB) permanece **[A DEFINIR]** e exige ADR antes da implementação.
 
@@ -5784,10 +5973,11 @@ Plano do usuário permite P?
 
 Fonte: `.claude/docs/PLANOS.md`.
 
-Os planos vigentes do Arkion são três:
+O plano é assinado **por organização**. Os planos vigentes do Arkion são três, mais o estado "sem plano":
 
 | Plano | Foco | Público |
 |-------|------|---------|
+| **(sem plano — `plan = null`)** | Estado inicial de toda organização recém-criada. Sem execuções. | Ver Seção 12.18 |
 | **Arkion Copy & Briefing** | Trilha de texto — pesquisa, estratégia, briefing e conteúdo escrito | Influenciadores, copywriters, criadores de conteúdo, gestores de tráfego solo |
 | **Arkion Studio Visual** | Trilha visual — identidade, personagens, imagem e vídeo | Designers, editores de vídeo, criadores de identidade visual |
 | **Arkion Full Pass** | Acesso integral às duas trilhas + cursos da Tiny Academy | Criadores avançados, agências |
@@ -5806,13 +5996,13 @@ Os planos vigentes do Arkion são três:
 
 O valor de **R$ 14,99/mês por marca adicional é idêntico nos três planos** e não escala com o preço da assinatura.
 
-Uma marca adicional é um `Project` extra — de topo ou sub-brand da hierarquia da Seção 19. A cobrança é pela Brand, não pela posição dela na árvore: uma sub-brand custa o mesmo que uma marca de topo.
+Uma marca adicional é um `Project` extra **dentro da organização** — de topo ou sub-brand da hierarquia da Seção 19. A cobrança é pela Brand, não pela posição dela na árvore: uma sub-brand custa o mesmo que uma marca de topo, e é cobrada da organização dona da Brand.
 
-O saldo de créditos permanece único e do usuário (Seção 19.3). Marcas adicionais ampliam o número de contextos de trabalho, nunca o saldo.
+O saldo de créditos permanece o da organização (Seção 12.2). Marcas adicionais ampliam o número de contextos de trabalho, nunca o saldo.
 
 ### Pacote de créditos recomendado
 
-Cada plano tem um pacote de créditos avulsos sugerido como *upsell* no fluxo de contratação. Os pacotes são registros de `credit_packages` (Seção 12.9) e creditam `purchased_credits_balance`.
+Cada plano tem um pacote de créditos avulsos sugerido como *upsell* no fluxo de contratação. Os pacotes são registros de `credit_packages` (Seção 12.9).
 
 A **quantidade de créditos** de cada pacote está marcada como `"X"` no `PLANOS.md` e permanece **[A DEFINIR]** — apenas o preço está fixado.
 
@@ -5822,16 +6012,18 @@ A **quantidade de créditos** de cada pacote está marcada como `"X"` no `PLANOS
 
 O feature gating da Seção 12.5 opera sobre `App\Models\Execution::PIPELINE_TYPES`.
 
-| `pipeline_type` | Copy & Briefing | Studio Visual | Full Pass |
-|-----------------|:---------------:|:-------------:|:---------:|
-| `brand_research` | ✅ | ❌ | ✅ |
-| `briefing_generation` | ✅ | ❌ | ✅ |
-| `create_article` | ✅ | ❌ | ✅ |
-| `copywriting_edit` | **[A DEFINIR]** | ❌ | ✅ |
-| `seo_optimization` | **[A DEFINIR]** | ❌ | ✅ |
-| `create_post` | **[A DEFINIR]** | ❌ | ✅ |
-| `create_ad` | **[A DEFINIR]** | ❌ | ✅ |
-| `image_generation` | ❌ | ✅ | ✅ |
+| `pipeline_type` | Sem plano | Copy & Briefing | Studio Visual | Full Pass |
+|-----------------|:---------:|:---------------:|:-------------:|:---------:|
+| `brand_research` | ❌ | ✅ | ❌ | ✅ |
+| `briefing_generation` | ❌ | ✅ | ❌ | ✅ |
+| `create_article` | ❌ | ✅ | ❌ | ✅ |
+| `copywriting_edit` | ❌ | **[A DEFINIR]** | ❌ | ✅ |
+| `seo_optimization` | ❌ | **[A DEFINIR]** | ❌ | ✅ |
+| `create_post` | ❌ | **[A DEFINIR]** | ❌ | ✅ |
+| `create_ad` | ❌ | **[A DEFINIR]** | ❌ | ✅ |
+| `image_generation` | ❌ | ❌ | ✅ | ✅ |
+
+A coluna **sem plano** é integralmente `❌` e **não depende de `plan_limits`** — é decidida antes, pela verificação da Seção 12.18.
 
 O **Full Pass libera todos os pipelines** — é a definição literal do plano no `PLANOS.md` ("todos os recursos liberados"), e as células **[A DEFINIR]** das outras colunas não o afetam.
 
@@ -5871,7 +6063,7 @@ Cada um exige um novo `pipeline_type`, uma linha em `plan_limits` e um workflow 
 
 ### Recursos que não são pipelines
 
-Brand Core, Visual Identity, Produtos, Personagens e mascotes são **áreas da interface** — telas de Brand, mapeadas na Seção 10.13 — e não consomem créditos. Aparecem nas listas do `PLANOS.md` como parte da proposta de valor, mas não entram no feature gating por `pipeline_type`.
+Brand Core, Visual Identity, Produtos, Personagens e mascotes são **áreas da interface** — telas de Brand, mapeadas na Seção 10.13 — e não consomem créditos. Aparecem nas listas do `PLANOS.md` como parte da proposta de valor, mas não entram no feature gating por `pipeline_type`. Permanecem acessíveis a uma organização sem plano (Seção 12.18).
 
 Cursos da **Tiny Academy** (Full Pass) são conteúdo externo à plataforma. A forma de entrega e de controle de acesso é **[A DEFINIR]**.
 
@@ -5881,6 +6073,7 @@ Cursos da **Tiny Academy** (Full Pass) são conteúdo externo à plataforma. A f
 
 | Plano | Créditos / mês |
 |-------|---------------:|
+| Sem plano (`plan = null`) | 0 — nenhuma atribuição ocorre |
 | Arkion Copy & Briefing | **[A DEFINIR]** |
 | Arkion Studio Visual | **[A DEFINIR]** |
 | Arkion Full Pass | **[A DEFINIR]** |
@@ -5898,6 +6091,8 @@ O mesmo vale para a quantidade de créditos dos pacotes recomendados acima.
 ## Plano Enterprise
 
 O tratamento de créditos ilimitados (`plan_limits.credits = null`) permanece implementado conforme a Seção 12.15.
+
+`plan_limits.credits = null` (custo ilimitado/gratuito da ação) e `organizations.plan = null` (organização sem assinatura) são conceitos **distintos** e nunca devem ser confundidos: o primeiro é configuração comercial de custo, o segundo é ausência de contrato.
 
 O `PLANOS.md` não menciona um plano Enterprise — os três planos comerciais acima são a oferta completa. A relação entre o comportamento *unlimited* já implementado e essa oferta é **[A DEFINIR]**: pode ser um plano negociado fora do catálogo público ou um resíduo a ser removido.
 
@@ -5922,26 +6117,33 @@ O custo deve ser obtido dinamicamente da tabela `plan_limits`.
 
 # 12.8 Armazenamento do Saldo
 
-Os saldos são armazenados diretamente na tabela `users`.
+Os saldos estão distribuídos entre duas tabelas.
 
-| Campo | Finalidade | Estado |
-|--------|------------|--------|
-| `plan_credits_balance` | Saldo do plano, renovado mensalmente, não cumulativo | Migration pendente |
-| `purchased_credits_balance` | Saldo comprado, nunca expira | Migration pendente |
-| `credits_used_this_month` | Consumo mensal agregado (métrica de exibição) | Implementado |
+| Tabela | Campo | Finalidade | Estado |
+|--------|-------|------------|--------|
+| `organizations` | `plan_credits_balance` | Saldo do plano da org, renovado mensalmente, não cumulativo | Migration pendente |
+| `organizations` | `purchased_credits_balance` | Saldo comprado pela org, nunca expira | Migration pendente |
+| `users` | `purchased_credits_balance` | Carteira pessoal do usuário, nunca expira, portátil entre orgs | Migration pendente |
+| `users` | `credits_used_this_month` | Consumo mensal agregado (métrica de exibição) | Implementado |
+
+Nenhuma coluna de saldo de plano existe em `users`. Nenhuma coluna de crédito existe em `projects` (Seção 19.3).
 
 ## Divergência com a implementação atual
 
-O código em produção ainda utiliza uma **única** coluna `users.credits_balance` (migration `0001_01_01_000000_create_users_table`), consumida por `App\Services\CreditService`.
+O código em produção ainda utiliza uma **única** coluna `users.credits_balance` (migration `0001_01_01_000000_create_users_table`), consumida por `App\Services\CreditService`, e não existe tabela `organizations`.
 
-A migração para o modelo de dois saldos é trabalho de código, não desta sessão de documentação, e envolve:
+A migração para o modelo de três carteiras é trabalho de código, não desta sessão de documentação, e envolve:
 
-1. migration adicionando `plan_credits_balance` e `purchased_credits_balance`;
-2. backfill de `credits_balance` para `plan_credits_balance`;
-3. reescrita de `CreditService::deduct()` para aplicar a ordem da Seção 12.3 dentro do lock pessimista existente;
-4. remoção de `credits_balance` em migration posterior, após o backfill validado.
+1. migrations criando `organizations` e `organization_user` (Seção 4.15);
+2. migration adicionando `organizations.plan_credits_balance`, `organizations.purchased_credits_balance` e `users.purchased_credits_balance`;
+3. backfill: uma organização "Personal" por usuário existente, com ele como Admin, recebendo o `credits_balance` atual em `organizations.plan_credits_balance`;
+4. backfill de `projects.organization_id` apontando para a organização Personal do antigo `projects.user_id`;
+5. reescrita de `CreditService::deduct()` para aplicar a ordem da Seção 12.3 e o fluxo de confirmação da Seção 12.19 dentro do lock pessimista;
+6. remoção de `users.credits_balance` em migration posterior, após o backfill validado.
 
 Não há tabela de ledger de créditos. Toda a rastreabilidade de consumo depende de `executions` e de `admin_action_logs`.
+
+> **[A DEFINIR]** — Rastreabilidade da carteira de origem. Sem ledger, um débito que atravessa três carteiras não deixa registro de quanto saiu de cada uma, o que inviabiliza o estorno proporcional citado na Seção 12.16. Decidir antes do lançamento comercial: colunas de breakdown em `executions` ou tabela de ledger própria. Exige ADR.
 
 ---
 
@@ -5959,7 +6161,7 @@ Permitir que a operação crie, renomeie, reprecifique e desative pacotes de cr�
 |-------|------|-------|
 | `id` | bigint | PK |
 | `name` | string | Nome comercial apresentado ao usuário (em inglês, Seção 10.1.1) |
-| `credits` | unsignedInteger | Quantidade creditada em `purchased_credits_balance` |
+| `credits` | unsignedInteger | Quantidade creditada na carteira de destino |
 | `price_cents` | unsignedInteger | Preço em centavos |
 | `currency` | string(3) | Moeda ISO 4217 |
 | `is_active` | boolean | Controla a exibição no catálogo |
@@ -5969,7 +6171,12 @@ Permitir que a operação crie, renomeie, reprecifique e desative pacotes de cr�
 
 ## Regras
 
-- Créditos adquiridos por um pacote **sempre** creditam `purchased_credits_balance`, jamais `plan_credits_balance`.
+- Créditos adquiridos por um pacote **nunca** creditam nenhum `plan_credits_balance`.
+- A carteira de destino depende de **quem comprou e em que capacidade**:
+  - compra feita por um **Admin** para a organização → `organizations.purchased_credits_balance`;
+  - compra feita por qualquer usuário para si → `users.purchased_credits_balance`.
+- Um **Member** só pode comprar créditos pessoais. A compra de créditos para a organização é exclusiva de Admin (Seção 20.4).
+- A capacidade da compra é decidida no backend a partir do papel do usuário na organização ativa, nunca por um campo enviado pelo cliente.
 - Um pacote desativado (`is_active = false`) desaparece do catálogo mas nunca é excluído — compras históricas precisam manter a referência.
 - Alterar o preço de um pacote nunca reprecifica compras passadas.
 - Toda alteração administrativa em `credit_packages` é registrada em `admin_action_logs` (Seção 14).
@@ -5996,7 +6203,7 @@ Nada impede que o catálogo tenha outros pacotes além destes três — `credit_
 Fluxo obrigatório:
 
 ```text
-Usuário
+Usuário na organização ativa O, com a Brand ativa B (B pertence a O)
 
 ↓
 
@@ -6004,34 +6211,58 @@ Pipeline solicitado
 
 ↓
 
-Feature gating do plano (Seção 12.5)
+1. O.plan é null?  (Seção 12.18)
 
-├── Pipeline fora do plano → HTTP 403 + CTA de upgrade
+├── Sim → NoActivePlanException → HTTP 402 + CTA "Subscribe to a plan"
 │
-└── Pipeline permitido
+└── Não
 
     ↓
 
-    EnsureCreditBalance
+    2. Feature gating do plano de O (Seção 12.5)
 
-    ↓
-
-    Consulta plan_limits
-
-    ↓
-
-    Consulta plan_credits_balance + purchased_credits_balance
-
-    ↓
-
-    Saldo somado suficiente?
-
-    ├── Não → HTTP 402 + CTA "Buy AI Credits"
+    ├── Pipeline fora do plano → FeatureNotAvailableException → HTTP 403 + CTA "Upgrade your plan"
     │
-    └── Sim → Continuação da execução
+    └── Pipeline permitido
+
+        ↓
+
+        3. EnsureCreditBalance
+
+        ↓
+
+        Consulta plan_limits
+
+        ↓
+
+        Consulta org.plan + org.purchased  (+ user.purchased, se confirmado)
+
+        ↓
+
+        3a. org.plan + org.purchased cobre o custo?
+
+        ├── Sim → débito nas carteiras da org → execução
+        │
+        └── Não
+
+            ↓
+
+            3b. confirm_personal_credits = true na requisição?
+
+            ├── Não → HTTP 409 + breakdown do custo por carteira (Seção 12.19)
+            │
+            └── Sim
+
+                ↓
+
+                3c. org.plan + org.purchased + user.purchased cobre o custo?
+
+                ├── Não → InsufficientCreditsException → HTTP 402 + CTA "Buy AI Credits"
+                │
+                └── Sim → débito nas três carteiras → execução
 ```
 
-Nenhuma ação que consuma créditos pode ignorar esta sequência.
+Nenhuma ação que consuma créditos pode ignorar esta sequência, e a ordem das etapas 1 → 2 → 3 é obrigatória.
 
 ---
 
@@ -6043,18 +6274,32 @@ Independentemente da implementação:
 
 - o valor debitado é sempre o registrado em `plan_limits`;
 - a ordem de consumo é sempre a da Seção 12.3;
-- os dois saldos são atualizados na mesma transação e sob o mesmo lock.
+- as carteiras tocadas são atualizadas na mesma transação e sob o mesmo lock;
+- a carteira pessoal só entra na transação quando a requisição trouxe `confirm_personal_credits = true`;
+- o valor efetivamente retirado de cada carteira é **recalculado dentro da transação**, nunca lido de um cálculo anterior à confirmação (Seção 12.19).
 
 ---
 
-# 12.12 Créditos Insuficientes
+# 12.12 Os Três Estados de Bloqueio
 
-Quando a soma dos dois saldos for insuficiente:
+Uma execução pode ser recusada por três motivos **distintos**, com exceção, código HTTP, mensagem e CTA próprios. **Nunca colapsar os três em uma mensagem genérica** — cada um leva o usuário a uma ação diferente.
+
+| Situação | Exceção | HTTP | Mensagem (inglês, Seção 10.1.1) | CTA |
+|----------|---------|:----:|--------------------------------|-----|
+| Organização sem plano ativo | `NoActivePlanException` | **402** | "This organization has no active plan." | **Subscribe to a plan** |
+| Pipeline fora do plano | `FeatureNotAvailableException` | **403** | "This feature is not included in your plan." | **Upgrade your plan** |
+| Saldo insuficiente nas carteiras autorizadas | `InsufficientCreditsException` | **402** | "Not enough credits to run this action." | **Buy AI Credits** |
+
+Os dois primeiros estados não são resolvidos comprando créditos, e o terceiro não é resolvido assinando ou fazendo upgrade. Uma mensagem genérica manda o usuário para a tela errada.
+
+Existe ainda um quarto retorno, que **não é um bloqueio** e sim uma pergunta: **HTTP 409** quando o custo tocaria a carteira pessoal sem confirmação (Seção 12.19).
+
+Quando a soma das carteiras autorizadas for insuficiente:
 
 - a execução não deve ser criada;
 - nenhuma chamada ao n8n deve ocorrer;
-- nenhum dos dois saldos deve ser parcialmente debitado;
-- retornar HTTP 402;
+- nenhuma das carteiras deve ser parcialmente debitada;
+- retornar HTTP 402 com `InsufficientCreditsException`;
 - exibir CTA **"Buy AI Credits"**.
 
 ---
@@ -6082,6 +6327,12 @@ Catálogo de credit_packages ativos
 
 ↓
 
+Escolha da carteira de destino
+  ├── Organização  (somente Admin)
+  └── Pessoal      (qualquer membro)
+
+↓
+
 Checkout do gateway
 
 ↓
@@ -6098,8 +6349,12 @@ Laravel
 
 ↓
 
-purchased_credits_balance += credit_packages.credits
+organizations.purchased_credits_balance += credit_packages.credits   (compra da org)
+        ou
+users.purchased_credits_balance         += credit_packages.credits   (compra pessoal)
 ```
+
+O papel exibido na etapa de escolha vem do backend. Um Member que forjar a opção "Organização" recebe 403: a autorização é reavaliada no processamento do webhook e na criação do checkout, nunca apenas na UI.
 
 ## Infraestrutura de Pagamento
 
@@ -6112,7 +6367,7 @@ purchased_credits_balance += credit_packages.credits
 
 **Decisão adiada para a sessão de Cashier do Mês 4.** Nenhuma implementação de compra de créditos avulsos pode começar antes desta decisão, pois ela determina o formato de `credit_packages.external_price_id`, o contrato do webhook de confirmação e a modelagem do registro da compra.
 
-A assinatura mensal dos planos permanece no Stripe + Laravel Cashier, decisão já fixada e não reaberta por esta pendência.
+A assinatura mensal dos planos permanece no Stripe + Laravel Cashier, decisão já fixada e não reaberta por esta pendência. **O titular da assinatura passa a ser a Organização, não o usuário** — o `Billable` do Cashier muda de Model, o que é mudança estrutural e deve ser tratada na mesma sessão.
 
 ---
 
@@ -6140,6 +6395,12 @@ O catálogo de pacotes avulsos tem como fonte oficial:
 credit_packages
 ```
 
+O plano vigente e os saldos da operação têm como fonte oficial a linha da organização em:
+
+```
+organizations
+```
+
 ---
 
 > ⚠️ **Regra crítica:** Nunca hardcode valores de créditos por ação, volumes mensais de plano, preços de pacote ou listas de pipelines permitidos. Todo custo e todo gating devem ser consultados na configuração persistida (preferencialmente via cache Redis), garantindo que alterações comerciais possam ser realizadas sem mudanças no código da aplicação.
@@ -6148,9 +6409,12 @@ credit_packages
 
 # 12.15 Registro de Implementação — Pendências do CreditService
 
-- **Dois saldos ainda não implementados**: `CreditService` opera sobre a coluna única `users.credits_balance`. A migração descrita na Seção 12.8 é pré-requisito das Seções 12.2, 12.3 e 12.4.
+- **Organizações ainda não existem**: não há tabela `organizations`, `organization_user` nem `projects.organization_id`. Todo o modelo das Seções 12.2, 12.3, 12.18, 12.19 e 20 depende dessa modelagem.
+- **Três carteiras ainda não implementadas**: `CreditService` opera sobre a coluna única `users.credits_balance`. A migração descrita na Seção 12.8 é pré-requisito das Seções 12.2, 12.3 e 12.4.
+- **Fluxo de confirmação da carteira pessoal não implementado**: não existe `confirm_personal_credits`, nem retorno 409, nem breakdown por carteira. Ver Seção 12.19.
+- **Estado sem plano não implementado**: não existe `organizations.plan` nem `NoActivePlanException`. Hoje nenhuma verificação de assinatura antecede a execução — `CheckSubscription` permanece pendente até o Mês 4.
 - **Feature gating ainda não implementado**: hoje qualquer plano pode solicitar qualquer `pipeline_type` válido. Não existe verificação de 403 por plano em `ExecutionController@store` nem em `BriefingForm`.
-- **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar). O mesmo Job passa a ser responsável pela atribuição de `plan_credits_balance` descrita na Seção 12.4.
+- **Reset mensal de `credits_used_this_month`**: [A DEFINIR]. Implementar como Job agendado no Mês 5 (`PruneOldExecutionsCommand` ou similar). O mesmo Job passa a ser responsável pela atribuição de `organizations.plan_credits_balance` descrita na Seção 12.4.
 - **`PlanLimit::forAction()` ignora o plano do usuário** — busca o primeiro registro da action, sem escopar por `plan`. Corrigir quando houver precificação diferenciada por plano: mudará a chave de cache de `plan_limits:{action}` para `plan_limits:{plan}:{action}` e exigirá ADR antes da implementação. Os três planos comerciais da Seção 12.6 tornam essa correção obrigatória.
 - **`plan_limits.credits` permanece NOT NULL no SQLite** — a migration que remove a restrição é exclusiva do PostgreSQL, de modo que `PlanLimitSeeder` (que grava `credits = null` para o plano enterprise) não pode ser executado na suíte de testes. Os testes que precisam de custo registram apenas a linha da action que exercitam.
 
@@ -6166,20 +6430,22 @@ canExecute()  →  transação { Execution::create(queued) + CreditService::dedu
 
 Duas consequências desenham a escolha:
 
-- **A verificação otimista e o débito definitivo são etapas distintas.** `canExecute()` decide o fluxo (402 versus continuação); a garantia real vem do lock pessimista dentro de `deduct()`. Duas requisições simultâneas do mesmo usuário nunca gastam o mesmo crédito.
+- **A verificação otimista e o débito definitivo são etapas distintas.** `canExecute()` decide o fluxo (402/403/409 versus continuação); a garantia real vem do lock pessimista dentro de `deduct()`. Duas requisições simultâneas nunca gastam o mesmo crédito.
 - **Criação e débito compartilham uma transação.** Se o saldo real, lido sob lock, não cobrir o custo, a Execution criada instantes antes desaparece com o rollback — a Seção 12.12 exige que saldo insuficiente não deixe execução alguma para trás.
 
 O Job só é despachado após o commit: um Worker que lesse a Execution antes dela existir no banco falharia em `findOrFail`.
 
-Quando os dois saldos forem implementados, a ordem de consumo da Seção 12.3 deve ser aplicada **dentro** deste mesmo lock. Ler um saldo fora do lock e debitar o outro dentro dele reabre exatamente a corrida que o lock existe para fechar.
+Quando as três carteiras forem implementadas, a ordem de consumo da Seção 12.3 deve ser aplicada **dentro** deste mesmo lock, que passa a travar a linha da organização e — apenas quando a carteira pessoal for tocada — também a linha do usuário. Ler um saldo fora do lock e debitar o outro dentro dele reabre exatamente a corrida que o lock existe para fechar.
 
-**Não implementado:** política de estorno em caso de falha do pipeline. A Seção 6.2 registra o tema como **[A DEFINIR]**; hoje uma Execution que falha no n8n mantém o crédito debitado. Decidir antes do lançamento comercial. O estorno precisará devolver o crédito ao saldo de origem — um débito que atravessou os dois saldos exige estorno proporcional a cada um.
+Com organizações, essa corrida deixa de ser hipotética: **dois membros diferentes da mesma organização competem pelo mesmo saldo**, e não apenas duas abas do mesmo usuário. É essa concorrência que torna obrigatório o recálculo descrito na Seção 12.19.
+
+**Não implementado:** política de estorno em caso de falha do pipeline. A Seção 6.2 registra o tema como **[A DEFINIR]**; hoje uma Execution que falha no n8n mantém o crédito debitado. Decidir antes do lançamento comercial. O estorno precisará devolver o crédito à carteira de origem — um débito que atravessou as três carteiras exige estorno proporcional a cada uma, o que depende da rastreabilidade pendente na Seção 12.8.
 
 ---
 
 # 12.17 Registro de Implementação — Escopo da Brand em Listagens
 
-O middleware `EnsureActiveProject` previsto na `CLAUDE.md` §4 ainda não existe, e não há mecanismo de sessão que fixe a Brand ativa do lado do servidor.
+O middleware `EnsureActiveProject` previsto na `CLAUDE.md` §4 ainda não existe, e não há mecanismo de sessão que fixe a Brand ativa do lado do servidor. Tampouco existe o contexto de organização ativa da Seção 20.5.
 
 Enquanto ele não centraliza esse contexto, `App\Http\Requests\Execution\IndexExecutionRequest` resolve a Brand de `GET /api/executions` assim:
 
@@ -6189,10 +6455,111 @@ Enquanto ele não centraliza esse contexto, `App\Http\Requests\Execution\IndexEx
 
 > A mensagem em português citada no item 3 é anterior à regra de idioma da Seção 10.1.1 e constitui dívida técnica: deve ser traduzida para inglês quando o Form Request for tocado.
 
-A consulta escopa simultaneamente por `user_id` e `project_id`, conforme a Seção 5.12 e a regra 10 da `CLAUDE.md`. Quando `EnsureActiveProject` for implementado, essa resolução migra para o middleware e o Form Request passa a apenas validar o filtro.
+A consulta escopa hoje simultaneamente por `user_id` e `project_id`. Quando as organizações existirem, o escopo por `user_id` é **substituído** pelo escopo por `organization_id` (Seção 20.6) — a Brand deixa de pertencer ao usuário e passa a pertencer à organização, e a verificação passa a ser "a Brand pertence à organização ativa, e o usuário é membro dela".
 
-`ExecutionPolicy@view`, por sua vez, verifica somente `user_id`: uma Execution de outra Brand do mesmo usuário continua sendo dele e não pode virar 403 ao ser aberta pelo link direto de `/result/{execution}`. O recorte por Brand permanece responsabilidade das consultas de listagem.
+`ExecutionPolicy@view`, por sua vez, verifica somente `user_id`: uma Execution de outra Brand do mesmo usuário continua sendo dele e não pode virar 403 ao ser aberta pelo link direto de `/result/{execution}`. Essa verificação também migra para `organization_id` quando as organizações existirem — um membro da organização precisa poder abrir a Execution disparada por outro membro na mesma Brand. O recorte por Brand permanece responsabilidade das consultas de listagem.
 
+---
+
+# 12.18 Organização sem Plano Ativo (`plan = null`)
+
+**Decisão confirmada.** `organizations.plan` é **NULLABLE**. Uma organização recém-criada — incluindo a organização "Personal" criada automaticamente no primeiro login (Seção 20.3) — nasce **sem plano**.
+
+`plan = null` significa **"sem assinatura ativa"**. Não é um plano gratuito, nem um trial, nem um estado de erro: é o estado inicial normal de toda organização.
+
+## O que uma organização sem plano PODE fazer
+
+- existir;
+- ter membros, convidar e remover membros;
+- criar, editar e excluir Marcas (Brands e sub-brands);
+- preencher Brand Core, Visual Identity, produtos, personagens e demais assets;
+- navegar por todo o histórico já produzido.
+
+## O que uma organização sem plano NÃO PODE fazer
+
+- **executar qualquer pipeline.** Nenhum. Sem exceção por tipo, por saldo ou por carteira pessoal.
+
+Ter créditos na carteira pessoal **não** contorna a ausência de plano: o eixo do plano é verificado antes do eixo de saldo, e nenhuma carteira é consultada quando ele reprova.
+
+## Ordem de verificação — regra de segurança
+
+A verificação de plano nulo acontece **ANTES** da verificação de feature gating. Esta ordem é **obrigatória e é uma regra de segurança**, não um detalhe de implementação:
+
+```text
+1. O.plan é null?         → NoActivePlanException (402)     ← PRIMEIRO, sempre
+2. plan permite pipeline? → FeatureNotAvailableException (403)
+3. saldo cobre o custo?   → InsufficientCreditsException (402)
+```
+
+**Por quê:** a convenção de feature gating (Seção 12.5) trata **linha ausente em `plan_limits` como habilitado**. Uma organização sem plano não possui nenhuma linha em `plan_limits` — logo, se o gating fosse avaliado primeiro, ele concluiria que *todos* os pipelines estão liberados e concederia **acesso irrestrito a uma organização sem assinatura**.
+
+Inverter esta ordem transforma a ausência de contrato em acesso total. Qualquer refatoração que reordene essas verificações é um defeito de segurança, não uma mudança de estilo.
+
+## Renovação e créditos
+
+Uma organização sem plano não tem ciclo de cobrança: `plan_credits_balance` permanece em `0` e nenhuma rotina de renovação a toca (Seção 12.4). `organizations.purchased_credits_balance` pode existir e permanecer intocado — créditos comprados não expiram e ficam disponíveis assim que um plano for assinado.
+
+## Assinatura
+
+Assinar um plano é ação exclusiva de **Admin** da organização (Seção 20.4). Um Member que encontra o bloqueio 402 vê o CTA "Subscribe to a plan", mas o fluxo de checkout só é aberto para Admin; para Member, a interface indica que um Admin da organização precisa assinar.
+
+---
+
+# 12.19 Fluxo de Confirmação da Carteira Pessoal
+
+A carteira pessoal (`users.purchased_credits_balance`) **nunca é debitada sem confirmação explícita do usuário**.
+
+## Contrato
+
+1. O usuário dispara uma ação que consome créditos.
+2. O backend calcula o custo e o distribui pelas carteiras na ordem da Seção 12.3.
+3. Se o débito calculado **tocaria a carteira pessoal** e a requisição **não** traz `confirm_personal_credits = true`, a API responde **HTTP 409** com o *breakdown* do custo por carteira — e **nada é debitado, nenhuma Execution é criada**.
+4. O frontend exibe um modal de confirmação apresentando esse breakdown.
+5. O usuário confirma e o frontend **reenvia a mesma requisição** com `confirm_personal_credits = true`.
+6. O backend recalcula o débito dentro da transação e executa.
+
+## Formato do 409
+
+```json
+{
+  "error": "personal_credits_confirmation_required",
+  "message": "This action will use your personal credits.",
+  "breakdown": {
+    "total_cost": 50,
+    "organization_plan_credits": 30,
+    "organization_purchased_credits": 10,
+    "personal_credits": 10
+  }
+}
+```
+
+O breakdown é **informativo**, exibido para que o usuário decida com contexto.
+
+## A confirmação autoriza a carteira, não um valor
+
+> ⚠️ **Regra crítica:** `confirm_personal_credits = true` significa **"autorizo usar minha carteira pessoal nesta ação"**. Não significa "autorizo exatamente N créditos pessoais".
+
+O valor real retirado da carteira pessoal é **recalculado dentro da transação de débito**, sob o lock da Seção 12.16, e pode ser **maior ou menor** do que o breakdown do 409.
+
+O motivo é a concorrência intrínseca ao modelo de organizações: entre o aviso e a confirmação, **outro membro da mesma organização pode ter gasto créditos da org** (aumentando a parcela pessoal) ou **um Admin pode ter comprado créditos para a org** (reduzindo ou zerando a parcela pessoal). Congelar o valor do aviso e debitá-lo cegamente gastaria crédito pessoal que já não era necessário, ou debitaria menos do que o custo real.
+
+Se, no recálculo, a soma das três carteiras não cobrir mais o custo, a resposta é `InsufficientCreditsException` (402) — não um débito parcial.
+
+Se, no recálculo, a carteira pessoal **não for mais necessária**, ela simplesmente não é tocada. A flag autoriza; não obriga.
+
+## O bloqueio é no backend
+
+> ⚠️ **Regra crítica:** O bloqueio da carteira pessoal é **do backend**, nunca apenas da interface. Uma chamada direta à API, sem passar pelo modal, que resultaria em débito pessoal e não traz a flag, é **rejeitada com 409**. O modal é conveniência de UX; a regra vive no serviço de crédito.
+
+Nenhum componente Livewire, Controller ou cliente pode injetar a flag por conta própria: ela precisa vir da requisição originada pela confirmação do usuário.
+
+## Escopo da confirmação
+
+- A confirmação vale para **uma ação**. Não é preferência persistida, não é "não perguntar novamente", não é sessão.
+- Cada nova ação que tocaria a carteira pessoal exige nova confirmação.
+- Um eventual opt-in persistente ("sempre usar meus créditos pessoais nesta organização") é **[A DEFINIR]** e exige ADR — não implementar por inferência.
+
+---
 
 # 13. Integrações Externas
 
@@ -6659,6 +7026,8 @@ O Painel Administrativo **não** substitui a autenticação Firebase. Um adminis
 **Motivo:** o universo de administradores é fechado e composto por dois operadores internos, sem hierarquia, sem delegação e sem granularidade de permissão. Uma tabela de papéis introduziria joins, cache de permissões e superfície de erro sem resolver nenhum problema existente.
 
 **Condição de reavaliação:** apenas por meio de uma ADR aprovada, e apenas se o sistema passar a contar com múltiplos funcionários exigindo hierarquia ou permissões granulares.
+
+> ⚠️ **Regra crítica:** `users.is_admin` é **staff da plataforma Arkion** (Nicolas e Erich). Não tem nenhuma relação com `organization_user.role`, que é o papel do usuário **dentro de uma organização** (`admin` ou `member`). Um não implica o outro em nenhuma direção: um staff da plataforma não é Admin de nenhuma organização de cliente, e um Admin de organização não tem acesso a `/admin/*`. Ver Seção 20.7. A decisão de manter `is_admin` como booleano **não** é revista por este modelo — os dois eixos coexistem por serem coisas diferentes.
 
 ---
 
@@ -7316,9 +7685,21 @@ Qualquer implementação que as viole deve ser considerada incorreta.
 
 ---
 
-**NUNCA** utilize `user_id` como único critério de isolamento.
+**NUNCA** utilize `user_id` como critério de isolamento.
 
-**SEMPRE** considere a Brand ativa como contexto da aplicação.
+**SEMPRE** escope por `organization_id` (organização ativa) e por `project_id` (Brand ativa). O único recurso que pertence diretamente a um usuário é a carteira pessoal de créditos (Seção 20.6).
+
+---
+
+**NUNCA** trate uma Brand como pertencente a um usuário.
+
+**SEMPRE** trate `projects.organization_id` como a coluna de propriedade. Não existe marca órfã nem vínculo direto entre User e Project (Seção 20.2).
+
+---
+
+**NUNCA** aceite uma Brand ativa que não pertença à organização ativa.
+
+**SEMPRE** valide o par `active_organization_id` / `active_project_id` em todo acesso (Seção 20.5).
 
 ---
 
@@ -7336,15 +7717,39 @@ Qualquer implementação que as viole deve ser considerada incorreta.
 
 ---
 
-**NUNCA** some `plan_credits_balance` e `purchased_credits_balance` em uma única coluna persistida.
+**NUNCA** some as três carteiras de crédito em uma única coluna persistida.
 
-**SEMPRE** mantenha os dois saldos separados e debite o saldo do plano primeiro (Seção 12.3).
+**SEMPRE** mantenha `organizations.plan_credits_balance`, `organizations.purchased_credits_balance` e `users.purchased_credits_balance` separadas, e debite exatamente nessa ordem (Seção 12.3).
 
 ---
 
-**NUNCA** permita que um usuário execute um pipeline fora do seu plano.
+**NUNCA** inverta a ordem de débito das carteiras.
+
+**SEMPRE** consuma o plano da org, depois o comprado pela org, e só então a carteira pessoal.
+
+---
+
+**NUNCA** debite a carteira pessoal sem `confirm_personal_credits = true` na requisição.
+
+**SEMPRE** responda **409** com o breakdown por carteira quando a confirmação faltar, e **recalcule** o valor pessoal dentro da transação — a confirmação autoriza a carteira, não um valor (Seção 12.19). O bloqueio é do backend, nunca só da UI.
+
+---
+
+**NUNCA** permita execução em uma organização sem plano ativo.
+
+**SEMPRE** verifique `organizations.plan is null` **antes** do feature gating, retornando `NoActivePlanException` (402). Inverter essa ordem concede acesso irrestrito, porque linha ausente em `plan_limits` significa habilitado (Seção 12.18).
+
+---
+
+**NUNCA** permita que uma organização execute um pipeline fora do seu plano.
 
 **SEMPRE** verifique o feature gating antes do saldo, retornando 403 (fora do plano) e não 402 (sem saldo).
+
+---
+
+**NUNCA** colapse os três estados de bloqueio em uma mensagem genérica.
+
+**SEMPRE** distinga `NoActivePlanException` (402, "Subscribe to a plan"), `FeatureNotAvailableException` (403, "Upgrade your plan") e `InsufficientCreditsException` (402, "Buy credits") — Seção 12.12.
 
 ---
 
@@ -7440,11 +7845,31 @@ Broadcast
 
 ---
 
+## Organizações
+
+**NUNCA** confunda `users.is_admin` com `organization_user.role`.
+
+**SEMPRE** trate `users.is_admin` como staff da plataforma Arkion e `organization_user.role` como papel dentro de uma organização. Um não implica o outro em nenhuma direção (Seção 20.7).
+
+---
+
+**NUNCA** deixe uma organização sem nenhum Admin.
+
+**SEMPRE** impeça a remoção e o rebaixamento do último Admin, verificando o invariante dentro da transação (Seção 20.4).
+
+---
+
+**NUNCA** permita que um Member assine plano, compre créditos para a organização, gerencie membros ou exclua a organização.
+
+**SEMPRE** aplique a matriz de permissões da Seção 20.4 por Policy, nunca escondendo botões na interface.
+
+---
+
 ## Multi-Brand
 
-**NUNCA** retorne dados pertencentes a outra Brand.
+**NUNCA** retorne dados pertencentes a outra Brand ou a outra Organização.
 
-**SEMPRE** utilize o `project_id` da Brand ativa em consultas, Jobs, Policies e componentes.
+**SEMPRE** utilize o `project_id` da Brand ativa em consultas, Jobs, Policies e componentes, dentro do escopo da organização ativa.
 
 ---
 
@@ -7477,11 +7902,15 @@ Broadcast
 
 ## 19.1 Visão Geral
 
-O Arkion permite que uma Brand seja **filha de outra Brand** do mesmo usuário.
+O Arkion permite que uma Brand seja **filha de outra Brand** da mesma Organização.
+
+> 🔁 **SUPERSEDED:** a revisão 2.0 desta seção dizia "do mesmo usuário". Com o modelo de Organizações (Seção 20), a Marca pertence à Organização e a hierarquia ocorre **sempre dentro da mesma `organization_id`**.
 
 O caso de uso é a *umbrella brand*: uma marca guarda-chuva que abriga marcas menores — linhas de produto, submarcas regionais, spin-offs — cada uma com identidade e conteúdo próprios, mas pertencentes à mesma operação comercial.
 
 ```text
+Organization: Acme Inc.
+
 Acme Group                    (umbrella brand — parent_project_id = null)
 ├── Acme Coffee               (sub-brand    — parent_project_id = Acme Group)
 ├── Acme Tea                   (sub-brand    — parent_project_id = Acme Group)
@@ -7500,6 +7929,7 @@ A relação é auto-referencial na tabela `projects`:
 
 | Coluna | Tipo | Constraints |
 |--------|------|-------------|
+| `organization_id` | bigint | FK `organizations.id`, **NOT NULL** |
 | `parent_project_id` | bigint | FK `projects.id`, **nullable** |
 
 ```php
@@ -7519,13 +7949,13 @@ public function children(): HasMany
 ## Regras de Integridade
 
 - `parent_project_id` nulo significa Brand de topo. É o estado padrão e o estado de toda Brand criada antes desta seção.
-- Quando preenchido, o Project referenciado **deve pertencer ao mesmo `user_id`**. Apontar para a Brand de outro usuário é uma violação de isolamento e deve ser rejeitado na validação, não apenas pela FK.
+- Quando preenchido, o Project referenciado **deve pertencer à mesma `organization_id`**. Apontar para a Brand de outra organização é uma violação de isolamento e deve ser rejeitado na validação, não apenas pela FK. *(Substitui a regra anterior, que exigia o mesmo `user_id`.)*
 - Um Project nunca pode ser seu próprio pai.
 - Ciclos são proibidos.
 - A política de cascata ao excluir uma umbrella brand com filhas é **[A DEFINIR]**, assim como a política de retenção geral da Seção 4.4.
 - A profundidade máxima da hierarquia é **[A DEFINIR]**. Até que seja decidida, nenhum código deve assumir recursão arbitrária nem assumir um único nível.
 
-> ⚠️ **Regra crítica:** A verificação de que o parent pertence ao mesmo usuário é responsabilidade da `ProjectPolicy` e do Form Request, não da constraint de banco. Uma FK para `projects.id` aceita qualquer Project do sistema, inclusive de outro usuário.
+> ⚠️ **Regra crítica:** A verificação de que o parent pertence à mesma organização é responsabilidade da `ProjectPolicy` e do Form Request, não da constraint de banco. Uma FK para `projects.id` aceita qualquer Project do sistema, inclusive de outra organização.
 
 ---
 
@@ -7533,24 +7963,30 @@ public function children(): HasMany
 
 **Sub-brands não possuem saldo próprio.**
 
-Os dois saldos da Seção 12.2 — `plan_credits_balance` e `purchased_credits_balance` — vivem em `users` e são compartilhados por todas as Brands do usuário, de topo ou não.
+> 🔁 **SUPERSEDED — "Sub-brands compartilham o saldo do usuário pai".** A revisão 2.0 desta seção afirmava que os dois saldos viviam em `users` e eram compartilhados por todas as Brands **do usuário**. Isso está superado: o saldo é **da Organização**. Sub-brands compartilham o saldo da organização dona da árvore, não o saldo de um usuário. O texto anterior é preservado apenas como histórico e não deve ser implementado.
+
+As carteiras da Seção 12.2 que financiam uma Brand são as **da organização** — `organizations.plan_credits_balance` e `organizations.purchased_credits_balance` — compartilhadas por todas as Brands dela, de topo ou não, e por todos os seus membros.
 
 ```text
-User
-├── plan_credits_balance         ← único
-└── purchased_credits_balance    ← único
+Organization
+├── plan_credits_balance         ← único, da org
+└── purchased_credits_balance    ← único, da org
     │
     ├── Acme Group        consome deste saldo
     ├── Acme Coffee       consome deste saldo
     └── Acme Tea          consome deste saldo
+
+User
+└── purchased_credits_balance    ← carteira pessoal, só com confirmação (Seção 12.19)
 ```
 
 ## Consequências
 
 - Uma execução disparada dentro de uma sub-brand debita exatamente o mesmo saldo que uma execução disparada na umbrella brand.
 - Não existe alocação, cota ou reserva de créditos por Brand.
-- O feature gating por plano (Seção 12.5) também é do usuário, não da Brand: uma sub-brand nunca tem acesso a pipelines que o plano do usuário não permite, e nunca perde acesso a pipelines que ele permite.
-- O indicador de créditos da Sidebar (Seção 10.12) exibe o mesmo par de saldos independentemente da Brand ativa.
+- O feature gating por plano (Seção 12.5) é **da organização**, não da Brand nem do usuário: uma sub-brand nunca tem acesso a pipelines que o plano da organização não permite, e nunca perde acesso a pipelines que ele permite.
+- Uma organização sem plano bloqueia todas as suas Brands, de topo e sub-brands, sem exceção (Seção 12.18).
+- O indicador de créditos da Sidebar (Seção 10.12) exibe os mesmos saldos da organização ativa independentemente da Brand ativa, e exibe a carteira pessoal separadamente.
 
 Nenhuma coluna de crédito pode ser adicionada a `projects`.
 
@@ -7558,11 +7994,11 @@ Nenhuma coluna de crédito pode ser adicionada a `projects`.
 
 ## Cobrança de Marcas Adicionais
 
-A assinatura de qualquer um dos três planos (Seção 12.6) inclui um número de marcas **[A DEFINIR]**. Marcas além desse limite custam **R$ 14,99/mês cada**, valor idêntico nos três planos.
+A assinatura de qualquer um dos três planos (Seção 12.6) inclui um número de marcas **[A DEFINIR]**. Marcas além desse limite custam **R$ 14,99/mês cada**, valor idêntico nos três planos, e são cobradas **da organização**.
 
 A cobrança é por Brand, independentemente da posição na árvore: uma sub-brand custa exatamente o mesmo que uma marca de topo. `parent_project_id` não altera preço.
 
-Marcas adicionais ampliam o número de contextos de trabalho e **nunca** o saldo de créditos — o saldo continua sendo um só, do usuário.
+Marcas adicionais ampliam o número de contextos de trabalho e **nunca** o saldo de créditos — o saldo continua sendo um só, da organização.
 
 Quantas marcas cada plano inclui antes de começar a cobrar o adicional é **[A DEFINIR]**: o `PLANOS.md` fixa o preço do adicional mas não a franquia inicial.
 
@@ -7580,7 +8016,7 @@ Sub-brands possuem **dados próprios e integralmente isolados**.
 | Executions | `project_id` |
 | Video references | `project_id` |
 
-A regra 10 da `CLAUDE.md` e a Seção 10.15 continuam valendo sem exceção:
+A regra 10 da `CLAUDE.md` e a Seção 10.15 continuam valendo sem exceção, agora sob a organização ativa (Seção 20.6):
 
 ```php
 Execution::query()
@@ -7597,7 +8033,7 @@ Qualquer necessidade futura de visão consolidada entre uma umbrella brand e sua
 
 A hierarquia não altera o modelo de Brand ativa.
 
-- Existe exatamente **uma** Brand ativa por sessão.
+- Existe exatamente **uma** Brand ativa por sessão, sempre pertencente à **organização ativa** (Seção 20.5).
 - Uma umbrella brand pode ser a Brand ativa, e nesse caso o usuário vê apenas os dados dela.
 - Selecionar uma sub-brand troca o `project_id` do contexto como qualquer outra troca de Brand.
 - Não existe estado de "umbrella brand ativa mais sub-brand ativa".
@@ -7612,16 +8048,202 @@ O `BrandSwitcher` (Seção 10.15) apresenta as sub-brands aninhadas sob a respec
 
 | Item | Estado |
 |------|--------|
+| Coluna `organization_id` em `projects` | Migration pendente |
 | Coluna `parent_project_id` | Migration pendente |
 | Relações `parent()` / `children()` no Model `Project` | Pendente |
-| Validação "parent pertence ao mesmo usuário" | Pendente |
+| Validação "parent pertence à mesma organização" | Pendente |
 | Prevenção de ciclos | Pendente |
 | Aninhamento no `BrandSwitcher` | Pendente |
 | Política de cascata na exclusão | **[A DEFINIR]** |
 | Profundidade máxima | **[A DEFINIR]** |
 
-Toda Brand existente hoje é, por definição, uma Brand de topo com `parent_project_id` nulo. A introdução da coluna é retrocompatível e não exige backfill.
+Toda Brand existente hoje é, por definição, uma Brand de topo com `parent_project_id` nulo. A introdução dessa coluna é retrocompatível e não exige backfill.
 
+`organization_id`, ao contrário, **exige backfill**: toda Brand existente precisa ser adotada pela organização "Personal" do seu antigo `user_id` (Seção 12.8).
+
+
+# 20. Organizações e Hierarquia de Propriedade
+
+## 20.1 Visão Geral
+
+O Arkion adota um modelo de **Organizações**, inspirado no Make.com.
+
+A **Organização é a entidade de faturamento** da plataforma. É dela o plano, os créditos do plano e os créditos comprados para a operação. As Marcas pertencem à Organização — **nunca ao usuário**.
+
+```text
+Organization  (entidade de faturamento — plano, créditos, membros)
+│
+├── Brand            (parent_project_id = null)
+│   ├── Sub-brand    (parent_project_id = Brand)
+│   └── Sub-brand
+│
+└── Brand
+```
+
+Um usuário **pertence a N organizações**, com **um papel por organização**, através da tabela pivot `organization_user`.
+
+O usuário não é dono de nada além da própria identidade e da sua **carteira pessoal de créditos** (Seção 12.2).
+
+---
+
+## 20.2 Regra Absoluta de Propriedade
+
+> ⚠️ **REGRA ABSOLUTA:** Nenhuma Marca existe fora de uma Organização.
+
+Consequências, todas invioláveis:
+
+- **Não existe marca órfã.** `projects.organization_id` é `NOT NULL`.
+- **Não existe vínculo direto entre User e Project.** Não há `Project` "do usuário": o vínculo do usuário com a Marca é sempre indireto, via participação na organização dona da Marca.
+- Um usuário só enxerga uma Marca porque é membro da organização dela — e deixa de enxergá-la no instante em que sai dessa organização, sem que a Marca seja afetada.
+- A relação `User hasMany Project` **deixa de existir** como relação de propriedade. `projects.user_id`, se preservado, passa a significar apenas "quem criou" — dado de auditoria, jamais critério de autorização ou de escopo de consulta.
+
+### Hierarquia dentro da Organização
+
+- `parent_project_id` é a hierarquia de Marcas da Seção 19 e permanece válida.
+- **`parent_project_id` sempre aponta para uma Marca da mesma Organização.** Uma sub-brand nunca cruza a fronteira de organizações. Apontar para uma Marca de outra org é violação de isolamento e deve ser rejeitado na validação, não apenas pela FK.
+- A regra anterior — "o parent precisa pertencer ao mesmo `user_id`" — é **substituída** por "o parent precisa pertencer à mesma `organization_id`".
+- A hierarquia continua **não ampliando** o escopo de nenhuma consulta (Seção 19.4).
+
+---
+
+## 20.3 Organização "Personal" Automática
+
+Todo usuário recebe automaticamente uma organização **"Personal"** no **primeiro login**, com ele como **Admin**.
+
+- A criação é automática e faz parte do fluxo de sincronização do usuário Firebase (`App\Actions\Auth\SyncFirebaseUserAction`).
+- A organização Personal nasce **sem plano** (`plan = null`, Seção 12.18), como qualquer outra organização.
+- A organização Personal não é um tipo especial de organização: é uma organização comum, com o mesmo schema, as mesmas regras de papéis e o mesmo faturamento. O nome é convenção de apresentação, não um flag de comportamento.
+- Nenhum usuário existe sem ao menos uma organização. Um usuário sem organização é estado inválido.
+
+### Seletor de organização na UI
+
+Se o usuário pertence a **apenas uma** organização, o **seletor de organização não é exibido** na interface. O contexto existe no backend de qualquer forma; a ausência do seletor é decisão de apresentação, nunca de modelagem.
+
+A partir da segunda organização, o seletor aparece e passa a ser o controle de troca de `active_organization_id` (Seção 20.5).
+
+---
+
+## 20.4 Matriz de Permissões — Dois Papéis
+
+O papel do usuário dentro de uma organização vive em `organization_user.role` e tem exatamente **dois valores**: `admin` e `member`. Não há terceiro papel, e a introdução de qualquer outro exige ADR.
+
+| Capacidade | Admin | Member |
+|------------|:-----:|:------:|
+| Gerenciar faturamento da organização (assinar, trocar e cancelar plano) | ✅ | ❌ |
+| Comprar créditos **para a organização** | ✅ | ❌ |
+| Gerenciar membros (convidar, remover, alterar papéis) | ✅ | ❌ |
+| Excluir a organização | ✅ | ❌ |
+| Gerenciar Marcas (criar, editar, excluir Brands e sub-brands) | ✅ | ✅ |
+| Rodar execuções | ✅ | ✅ |
+| Comprar **créditos pessoais** | ✅ | ✅ |
+
+Notas:
+
+- Comprar créditos pessoais é capacidade do **usuário**, não da organização: um Member compra para a própria carteira (`users.purchased_credits_balance`), que o acompanha entre organizações.
+- Rodar execuções continua sujeito aos três eixos da Seção 12.1: plano ativo, feature gating e saldo. O papel autoriza a ação; não dispensa nenhum dos três.
+- A verificação de papel é responsabilidade de Policies do Laravel, nunca da interface. Esconder um botão não é autorização.
+
+### Invariante obrigatório — a organização nunca fica sem Admin
+
+> ⚠️ **REGRA DE NEGÓCIO:** Uma organização **nunca** pode ficar sem nenhum Admin.
+
+- O **último Admin não pode ser removido** da organização.
+- O **último Admin não pode ser rebaixado a Member**.
+- O último Admin também não pode sair da organização por conta própria: sair é uma remoção como outra qualquer.
+- Para deixar a organização, o último Admin precisa antes **promover outro membro a Admin** ou **excluir a organização**.
+
+Este é um **invariante de negócio**, não um detalhe de implementação. Ele vale em toda superfície que altere participação ou papel — API, Livewire, painel administrativo, comandos Artisan e seeders — e deve ser verificado **dentro da transação** que executa a alteração, sob lock, para que duas remoções simultâneas dos dois últimos Admins não deixem a organização órfã.
+
+Uma organização sem Admin é um estado irrecuperável pelo próprio usuário: ninguém poderia mais assinar um plano, comprar créditos para a org, gerenciar membros ou excluí-la.
+
+---
+
+## 20.5 Contexto de Sessão — Duas Variáveis
+
+O contexto de sessão do Arkion passa a ter **duas** variáveis, não uma:
+
+| Variável | Significado |
+|----------|-------------|
+| `active_organization_id` | Organização ativa da sessão. Define plano, feature gating, carteiras da org e conjunto de Marcas visíveis. |
+| `active_project_id` | Brand ativa da sessão. Define o escopo de todo dado de domínio (Seção 19.4). |
+
+> ⚠️ **Regra crítica:** A `active_project` **DEVE** pertencer à `active_organization`. Esta relação precisa ser **validada em todo acesso**, não apenas no momento da troca.
+
+- Trocar de organização **invalida** a Brand ativa: ou o sistema seleciona uma Brand da nova organização, ou o contexto de Brand fica vazio até que o usuário escolha uma.
+- Um `active_project_id` que não pertence à `active_organization_id` é estado inválido e nunca deve ser tratado como "quase certo": a requisição é rejeitada, não corrigida silenciosamente.
+- A validação é do backend. Um cliente que envie `project_id` de outra organização recebe 403, mesmo que o usuário seja membro de ambas.
+- A verificação de que o usuário é membro da `active_organization` acontece antes de qualquer verificação de Brand.
+
+O middleware `EnsureActiveProject` previsto na `CLAUDE.md` §4 passa a ser responsável também por essa validação, ou é acompanhado de um `EnsureActiveOrganization` que a antecede. A divisão exata entre os dois middlewares é **[A DEFINIR]**.
+
+---
+
+## 20.6 Escopo de Consultas
+
+> ⚠️ **Regra crítica:** Toda consulta de domínio é escopada pela **organização ativa**, nunca por `user_id`.
+
+```php
+// PROIBIDO — escopo por usuário
+Project::query()->where('user_id', $user->id);
+
+// Correto — escopo por organização ativa
+Project::query()->where('organization_id', $activeOrganization->id);
+
+// Correto — dado de domínio permanece escopado pela Brand ativa
+Execution::query()->where('project_id', $activeProject->id);
+```
+
+- O escopo por `project_id` da Seção 19.4 e da regra 10 da `CLAUDE.md` **permanece integralmente válido** para todo dado de domínio. A organização é a camada acima, não a substituta.
+- `user_id` deixa de ser critério de isolamento. O único recurso que pertence diretamente a um usuário é a **carteira pessoal de créditos**.
+- Consultas que hoje filtram por `user_id` (listagens de Executions, Policies, resolução de Brand ativa) migram para `organization_id`, conforme registrado na Seção 12.17.
+- Uma Execution disparada por um membro é visível aos demais membros da mesma organização, na mesma Brand. Isso é intencional: a Brand é da organização, e o trabalho produzido nela também.
+
+---
+
+## 20.7 Dois Eixos de Permissão que Nunca Se Confundem
+
+O sistema tem **dois eixos de permissão completamente independentes**. Confundi-los é falha de segurança.
+
+| Eixo | Onde vive | O que significa | Escopo |
+|------|-----------|-----------------|--------|
+| `users.is_admin` | Coluna booleana em `users` | **Staff da plataforma Arkion** — hoje, Nicolas e Erich. Dá acesso ao painel administrativo `/admin/*` (Seção 14). | Global, da plataforma |
+| `organization_user.role` | Coluna na pivot `organization_user` | **Papel dentro de uma organização** — `admin` ou `member` (Seção 20.4). | Por organização |
+
+> ⚠️ **Regra crítica:** Um não implica o outro **em nenhuma direção**.
+
+- Ser `users.is_admin = true` **não** torna o usuário Admin de nenhuma organização, nem lhe dá qualquer papel implícito nas organizações de clientes.
+- Ser Admin de uma organização **não** concede `users.is_admin` nem qualquer acesso a `/admin/*`.
+- Um staff da plataforma que também seja cliente tem os dois atributos, de forma independente, e cada verificação consulta apenas o eixo que lhe corresponde.
+- Nenhuma verificação pode usar um eixo como atalho para o outro. `if ($user->is_admin)` jamais autoriza uma ação de organização; `if ($org->isAdmin($user))` jamais autoriza uma ação de plataforma.
+
+O termo "admin" aparece nos dois eixos por acidente de vocabulário. Em código, nomear com precisão (`isPlatformStaff()` versus `isOrganizationAdmin()`) é preferível a repetir a ambiguidade.
+
+---
+
+## 20.8 Estado da Implementação
+
+**Nada desta seção está implementado.**
+
+| Item | Estado |
+|------|--------|
+| Tabelas `organizations` e `organization_user` | Migration pendente (Seção 4.15) |
+| Coluna `projects.organization_id` | Migration pendente |
+| Criação automática da organização "Personal" no primeiro login | Pendente |
+| Contexto de sessão com duas variáveis | Pendente |
+| Validação "active_project pertence à active_organization" | Pendente |
+| Migração do escopo de `user_id` para `organization_id` | Pendente |
+| Invariante do último Admin | Pendente |
+| Três carteiras de crédito | Pendente (Seção 12.8) |
+| Titular da assinatura Stripe = Organization | Pendente (Seção 12.13) |
+| Seletor de organização no header | Pendente |
+| Divisão entre `EnsureActiveOrganization` e `EnsureActiveProject` | **[A DEFINIR]** |
+| Fluxo de convite de membros (e-mail, aceite, expiração) | **[A DEFINIR]** |
+| Política de exclusão de organização com Marcas e Executions | **[A DEFINIR]** |
+| Destino da carteira pessoal quando o usuário deixa todas as orgs | **[A DEFINIR]** |
+
+A migração é estrutural e retrocompatível apenas por backfill: toda Brand existente hoje precisa ser adotada pela organização Personal do seu antigo `user_id` (Seção 12.8).
+
+---
 
 # APÊNDICES
 
