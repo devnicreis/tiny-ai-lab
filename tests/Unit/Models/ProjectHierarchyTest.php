@@ -2,8 +2,8 @@
 
 namespace Tests\Unit\Models;
 
+use App\Models\Organization;
 use App\Models\Project;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,7 +16,7 @@ class ProjectHierarchyTest extends TestCase
 
     public function test_a_brand_without_a_parent_is_a_top_level_brand(): void
     {
-        $brand = Project::factory()->for(User::factory())->create();
+        $brand = Project::factory()->for(Organization::factory())->create();
 
         $this->assertNull($brand->parent_project_id);
         $this->assertNull($brand->parent);
@@ -25,11 +25,12 @@ class ProjectHierarchyTest extends TestCase
 
     public function test_sub_brands_resolve_parent_and_children(): void
     {
-        $user = User::factory()->create();
+        // Umbrella e sub-brands vivem sempre na mesma organização (SAD 20.2).
+        $organization = Organization::factory()->create();
 
-        $umbrella = Project::factory()->for($user)->create(['brand_name' => 'Acme Group']);
-        $coffee = Project::factory()->for($user)->create(['parent_project_id' => $umbrella->id]);
-        $tea = Project::factory()->for($user)->create(['parent_project_id' => $umbrella->id]);
+        $umbrella = Project::factory()->for($organization)->create(['brand_name' => 'Acme Group']);
+        $coffee = Project::factory()->for($organization)->create(['parent_project_id' => $umbrella->id]);
+        $tea = Project::factory()->for($organization)->create(['parent_project_id' => $umbrella->id]);
 
         $this->assertSame($umbrella->id, $coffee->parent->id);
         $this->assertEqualsCanonicalizing(
@@ -44,10 +45,10 @@ class ProjectHierarchyTest extends TestCase
      */
     public function test_hierarchy_never_widens_the_scope_of_a_domain_query(): void
     {
-        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
 
-        $umbrella = Project::factory()->for($user)->create();
-        $sub = Project::factory()->for($user)->create(['parent_project_id' => $umbrella->id]);
+        $umbrella = Project::factory()->for($organization)->create();
+        $sub = Project::factory()->for($organization)->create(['parent_project_id' => $umbrella->id]);
 
         $this->assertSame(
             [$umbrella->id],

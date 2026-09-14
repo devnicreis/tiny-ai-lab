@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Execution;
-use App\Models\Project;
 use App\Models\User;
 use App\Services\FirebaseService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,6 +10,7 @@ use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use Mockery\MockInterface;
+use Tests\Concerns\InteractsWithOrganizations;
 use Tests\TestCase;
 
 /**
@@ -20,7 +20,7 @@ use Tests\TestCase;
  */
 class BroadcastAuthTest extends TestCase
 {
-    use RefreshDatabase;
+    use InteractsWithOrganizations, RefreshDatabase;
 
     private const FIREBASE_UID = 'firebase-uid-broadcast';
 
@@ -66,11 +66,14 @@ class BroadcastAuthTest extends TestCase
         });
     }
 
-    private function ownedExecution(User $user): Execution
+    /**
+     * Execution em uma Brand da organização do usuário (SAD 20.6).
+     */
+    private function executionVisibleTo(User $user): Execution
     {
-        return Execution::factory()->for(
-            Project::factory()->for($user)
-        )->create();
+        return Execution::factory()
+            ->for($this->brandOf($this->organizationWith($user)))
+            ->create(['user_id' => $user->id]);
     }
 
     /**
@@ -87,7 +90,7 @@ class BroadcastAuthTest extends TestCase
     public function test_broadcasting_auth_requires_valid_firebase_token(): void
     {
         $user = User::factory()->create(['firebase_uid' => self::FIREBASE_UID]);
-        $execution = $this->ownedExecution($user);
+        $execution = $this->executionVisibleTo($user);
 
         $this->mockFirebaseToken();
 
@@ -101,7 +104,7 @@ class BroadcastAuthTest extends TestCase
     public function test_broadcasting_auth_rejects_invalid_token(): void
     {
         $user = User::factory()->create(['firebase_uid' => self::FIREBASE_UID]);
-        $execution = $this->ownedExecution($user);
+        $execution = $this->executionVisibleTo($user);
 
         $this->mockInvalidFirebaseToken();
 
@@ -115,19 +118,20 @@ class BroadcastAuthTest extends TestCase
     public function test_broadcasting_auth_rejects_missing_token(): void
     {
         $user = User::factory()->create(['firebase_uid' => self::FIREBASE_UID]);
-        $execution = $this->ownedExecution($user);
+        $execution = $this->executionVisibleTo($user);
 
         $this->authorize("private-execution.{$execution->id}")
             ->assertUnauthorized()
             ->assertExactJson(['error' => 'unauthenticated']);
     }
 
-    public function test_broadcasting_auth_rejects_execution_of_another_user(): void
+    public function test_broadcasting_auth_rejects_execution_of_another_organization(): void
     {
-        User::factory()->create(['firebase_uid' => self::FIREBASE_UID]);
+        $user = User::factory()->create(['firebase_uid' => self::FIREBASE_UID]);
+        $this->organizationWith($user);
 
         $otherUser = User::factory()->create(['firebase_uid' => 'firebase-uid-outro']);
-        $foreignExecution = $this->ownedExecution($otherUser);
+        $foreignExecution = $this->executionVisibleTo($otherUser);
 
         $this->mockFirebaseToken();
 

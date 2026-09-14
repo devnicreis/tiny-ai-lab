@@ -30,6 +30,8 @@ class N8nServiceTest extends TestCase
 
     private const USER_ID = 12;
 
+    private const ORGANIZATION_ID = 3;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -53,8 +55,11 @@ class N8nServiceTest extends TestCase
      */
     private function execution(): Execution
     {
+        // `organization_id` é informado para que a factory não precise criar a
+        // organização no banco: nenhum teste deste arquivo toca o schema.
         $project = Project::factory()->make([
-            'user_id' => self::USER_ID,
+            'organization_id' => self::ORGANIZATION_ID,
+            'created_by_user_id' => self::USER_ID,
             'brand_name' => 'Tiny Coffee',
             'website' => 'https://tinycoffee.test',
             'description' => 'Torrefação artesanal.',

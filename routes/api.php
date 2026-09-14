@@ -20,8 +20,24 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/firebase', [AuthController::class, 'firebase']);
 
 Route::middleware('auth.firebase')->group(function () {
+    // `/auth/me` fica fora do middleware `organization`: é justamente a rota
+    // que informa ao cliente quais organizações existem e qual está ativa —
+    // exigir contexto aqui tornaria impossível descobri-lo (SAD 20.5).
     Route::get('/auth/me', [AuthController::class, 'me']);
+});
 
+/*
+|--------------------------------------------------------------------------
+| Domínio — exige contexto de organização
+|--------------------------------------------------------------------------
+|
+| Toda rota daqui para baixo depende da organização ativa: é ela que define o
+| conjunto de Marcas visíveis, o plano, o feature gating e as carteiras
+| (SAD 20.5 e 20.6). O middleware roda sempre depois de `auth.firebase`.
+|
+*/
+
+Route::middleware(['auth.firebase', 'organization'])->group(function () {
     Route::get('/projects', [ProjectController::class, 'index']);
     Route::post('/projects', [ProjectController::class, 'store']);
     Route::get('/projects/{project}', [ProjectController::class, 'show']);

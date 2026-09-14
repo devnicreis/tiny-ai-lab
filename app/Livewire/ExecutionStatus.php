@@ -24,7 +24,7 @@ class ExecutionStatus extends Component
      */
     private const STATUS_COLUMNS = [
         'id',
-        'user_id',
+        'project_id',
         'status',
         'pipeline_type',
         'error_message',
@@ -95,18 +95,20 @@ class ExecutionStatus extends Component
     }
 
     /**
-     * Lê os metadados do estado atual, escopado ao usuário autenticado.
+     * Lê os metadados do estado atual, escopado às organizações do usuário.
      *
-     * O recorte por `user_id` não substitui a ExecutionPolicy — aplicada na rota
-     * `/result/{execution}` — apenas garante que uma requisição Livewire forjada
-     * com outro identificador não devolva metadado algum.
+     * O recorte por participação não substitui a ExecutionPolicy — aplicada na
+     * rota `/result/{execution}` — apenas garante que uma requisição Livewire
+     * forjada com outro identificador não devolva metadado algum. `user_id`
+     * não serve a esse recorte: a Execution é da organização, e um membro
+     * acompanha o que outro disparou na mesma Brand (SAD 20.6).
      */
     private function pullStatus(): void
     {
         $execution = Execution::query()
             ->select(self::STATUS_COLUMNS)
             ->whereKey($this->executionId)
-            ->where('user_id', auth()->id())
+            ->visibleTo(auth()->user())
             ->firstOrFail();
 
         $this->status = (string) $execution->status;

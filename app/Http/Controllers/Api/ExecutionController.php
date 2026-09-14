@@ -7,6 +7,7 @@ use App\Http\Requests\Execution\IndexExecutionRequest;
 use App\Http\Requests\Execution\StoreBriefingRequest;
 use App\Models\Execution;
 use App\Services\ExecutionService;
+use App\Services\OrganizationContext;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -19,6 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ExecutionController extends Controller
 {
+    public function __construct(
+        private readonly OrganizationContext $context,
+    ) {}
+
     /**
      * Colunas expostas em listagem (SAD L.5).
      *
@@ -42,13 +47,18 @@ class ExecutionController extends Controller
     ];
 
     /**
-     * Execuções da Brand ativa, escopadas também por `user_id` (SAD 5.12).
+     * Execuções da Brand ativa, dentro da organização ativa (SAD 5.12).
+     *
+     * Os dois recortes são simultâneos e nenhum deles é `user_id`: a Brand
+     * delimita o dado de domínio e a organização delimita o que a sessão pode
+     * enxergar. Uma execução disparada por outro membro, na mesma Brand,
+     * aparece aqui — é trabalho da organização (SAD 20.6).
      */
     public function index(IndexExecutionRequest $request): JsonResponse
     {
         $executions = Execution::query()
             ->select(self::LIST_COLUMNS)
-            ->where('user_id', $request->user()->id)
+            ->forOrganization($this->context->currentOrFail()->id)
             ->forBrand($request->brandId())
             ->latest('id')
             ->paginate($request->perPage());
@@ -68,6 +78,10 @@ class ExecutionController extends Controller
         $execution = $executions->create(
             user: $request->user(),
             brand: $request->brand(),
+            // A organização ativa viaja junto para que o Service reprove uma
+            // Brand de outra organização (CLAUDE.md regra 34). Quem paga
+            // continua sendo a organização dona da Brand, derivada dela.
+            activeOrganization: $this->context->currentOrFail(),
             pipeline: (string) $request->validated('pipeline_type'),
             config: $request->config(),
             // A flag vem do reenvio que o usuário confirmou no modal do 409 e

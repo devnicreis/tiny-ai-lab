@@ -7,15 +7,15 @@ use App\Livewire\BriefingForm;
 use App\Livewire\ExecutionStatus;
 use App\Livewire\ResultDashboard;
 use App\Models\Execution;
+use App\Models\Organization;
 use App\Models\PlanLimit;
 use App\Models\Project;
 use App\Models\User;
-use App\Services\FirebaseService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
-use Mockery\MockInterface;
+use Tests\Concerns\InteractsWithOrganizations;
 use Tests\TestCase;
 
 /**
@@ -27,13 +27,20 @@ use Tests\TestCase;
  */
 class LivewirePipelineTest extends TestCase
 {
-    use RefreshDatabase;
+    use InteractsWithOrganizations, RefreshDatabase;
 
     private const BRIEFING_COST = 5;
 
+    /**
+     * Plano comercial da Seção 12.6, gravado em `organizations.plan`. Os nomes
+     * antigos (`free`/`pro`/`enterprise`) pertenciam a `users.plan`, coluna que
+     * não existe mais.
+     */
+    private const PLAN = 'copy_briefing';
+
     private function seedBriefingCost(int $credits = self::BRIEFING_COST): void
     {
-        foreach (['free', 'pro', 'enterprise'] as $plan) {
+        foreach (['copy_briefing', 'studio_visual', 'full_pass'] as $plan) {
             PlanLimit::create([
                 'plan' => $plan,
                 'action' => 'briefing_generation',
@@ -42,12 +49,24 @@ class LivewirePipelineTest extends TestCase
         }
     }
 
+    /**
+     * Organização com plano, seu Admin e a Brand ativa.
+     *
+     * O saldo é da **organização**: o usuário entra na conta apenas pela
+     * carteira pessoal, que estes testes deixam zerada (SAD 12.1 e 12.2).
+     *
+     * @return array{0: User, 1: Project, 2: Organization}
+     */
     private function userWithBrand(int $balance = 100): array
     {
-        $user = User::factory()->create(['plan_credits_balance' => $balance]);
-        $brand = Project::factory()->for($user)->create(['is_active' => true]);
+        $user = User::factory()->create();
 
-        return [$user, $brand];
+        $organization = $this->organizationWith($user, attributes: [
+            'plan' => self::PLAN,
+            'plan_credits_balance' => $balance,
+        ]);
+
+        return [$user, $this->brandOf($organization, ['is_active' => true]), $organization];
     }
 
     /**
@@ -71,7 +90,7 @@ class LivewirePipelineTest extends TestCase
         Queue::fake();
         $this->seedBriefingCost();
 
-        [$user, $brand] = $this->userWithBrand(balance: 40);
+        [$user, $brand, $organization] = $this->userWithBrand(balance: 40);
 
         Livewire::actingAs($user)
             ->test(BriefingForm::class)
@@ -91,7 +110,7 @@ class LivewirePipelineTest extends TestCase
             $execution->config['inputs']['objective'],
         );
 
-        $this->assertSame(40 - self::BRIEFING_COST, $user->fresh()->plan_credits_balance);
+        $this->assertSame(40 - self::BRIEFING_COST, $organization->fresh()->plan_credits_balance);
 
         Queue::assertPushed(ProcessBriefingJob::class);
     }
@@ -101,7 +120,7 @@ class LivewirePipelineTest extends TestCase
         Queue::fake();
         $this->seedBriefingCost();
 
-        [$user, $brand] = $this->userWithBrand(balance: 1);
+        [$user, $brand, $organization] = $this->userWithBrand(balance: 1);
 
         Livewire::actingAs($user)
             ->test(BriefingForm::class)
@@ -112,7 +131,7 @@ class LivewirePipelineTest extends TestCase
                 && str_contains($message, 'Insufficient credits'));
 
         $this->assertDatabaseCount('executions', 0);
-        $this->assertSame(1, $user->fresh()->plan_credits_balance);
+        $this->assertSame(1, $organization->fresh()->plan_credits_balance);
 
         Queue::assertNothingPushed();
     }
@@ -126,10 +145,10 @@ class LivewirePipelineTest extends TestCase
         Queue::fake();
         $this->seedBriefingCost();
 
-        [$user, $brand] = $this->userWithBrand(balance: 10_000);
+        [$user, $brand, $organization] = $this->userWithBrand(balance: 10_000);
 
         PlanLimit::query()
-            ->where('plan', $user->plan)
+            ->where('plan', $organization->plan)
             ->where('action', 'briefing_generation')
             ->update(['is_enabled' => false]);
 
@@ -143,17 +162,19 @@ class LivewirePipelineTest extends TestCase
                 && ! str_contains($message, 'credits'));
 
         $this->assertDatabaseCount('executions', 0);
-        $this->assertSame(10_000, $user->fresh()->plan_credits_balance);
+        $this->assertSame(10_000, $organization->fresh()->plan_credits_balance);
 
         Queue::assertNothingPushed();
     }
 
-    public function test_briefing_form_rejects_a_brand_from_another_user(): void
+    public function test_briefing_form_rejects_a_brand_from_another_organization(): void
     {
         Queue::fake();
         $this->seedBriefingCost();
 
         [$user] = $this->userWithBrand();
+        // Brand de outra organização: o `exists` da regra é escopado à
+        // organização ativa e a rejeita antes de qualquer débito (SAD 20.6).
         $foreignBrand = Project::factory()->create();
 
         Livewire::actingAs($user)
@@ -185,7 +206,7 @@ class LivewirePipelineTest extends TestCase
             ->assertDispatched('execution-finished', executionId: $execution->id);
     }
 
-    public function test_execution_status_never_serves_an_execution_from_another_user(): void
+    public function test_execution_status_never_serves_an_execution_from_another_organization(): void
     {
         [$user] = $this->userWithBrand();
         $foreign = Execution::factory()->create(['status' => 'processing']);
@@ -248,33 +269,13 @@ class LivewirePipelineTest extends TestCase
         $response->assertDontSee('diagnosis');
     }
 
-    public function test_result_page_is_denied_to_a_non_owner(): void
+    public function test_result_page_is_denied_to_a_user_outside_the_organization(): void
     {
         [$user] = $this->userWithBrand();
         $foreign = Execution::factory()->create();
 
         $this->get('/result/'.$foreign->id, $this->firebaseHeaders($user))
             ->assertForbidden();
-    }
-
-    /**
-     * Autentica a requisição web como o usuário informado, mockando o Firebase
-     * para devolver claims correspondentes ao seu `firebase_uid`.
-     *
-     * @return array<string, string>
-     */
-    private function firebaseHeaders(User $user): array
-    {
-        $this->mock(FirebaseService::class, function (MockInterface $mock) use ($user) {
-            $mock->shouldReceive('verifyIdToken')->andReturn([
-                'sub' => $user->firebase_uid,
-                'email' => $user->email,
-                'name' => $user->name,
-                'email_verified' => true,
-            ]);
-        });
-
-        return ['Authorization' => 'Bearer valid-id-token'];
     }
 
     public function test_result_dashboard_holds_no_result_while_the_execution_is_not_completed(): void

@@ -66,18 +66,19 @@ class ResultDashboard extends Component
     }
 
     /**
-     * A Execution do usuário autenticado, com `result`.
+     * A Execution, com `result`, escopada às organizações do usuário.
      *
-     * O recorte por `user_id` não substitui a ExecutionPolicy — aplicada na rota
-     * `/result/{execution}` — apenas garante que uma requisição Livewire forjada
-     * com outro identificador não devolva conteúdo algum.
+     * O recorte por participação não substitui a ExecutionPolicy — aplicada na
+     * rota `/result/{execution}` — apenas garante que uma requisição Livewire
+     * forjada com outro identificador não devolva conteúdo algum. O critério é
+     * o mesmo da Policy: membro da organização dona da Brand (SAD 20.6).
      */
     #[Computed]
     public function execution(): Execution
     {
         return Execution::query()
             ->whereKey($this->executionId)
-            ->where('user_id', auth()->id())
+            ->visibleTo(auth()->user())
             ->firstOrFail();
     }
 

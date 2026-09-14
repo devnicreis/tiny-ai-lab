@@ -6,10 +6,10 @@ use App\Events\ExecutionFailed;
 use App\Events\ExecutionUpdated;
 use App\Http\Middleware\VerifyN8nSecret;
 use App\Models\Execution;
-use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Tests\Concerns\InteractsWithOrganizations;
 use Tests\TestCase;
 
 /**
@@ -20,7 +20,7 @@ use Tests\TestCase;
  */
 class WebhookTest extends TestCase
 {
-    use RefreshDatabase;
+    use InteractsWithOrganizations, RefreshDatabase;
 
     private const ENDPOINT = '/api/webhook/n8n/result';
 
@@ -44,7 +44,7 @@ class WebhookTest extends TestCase
     private function processingExecution(): Execution
     {
         $user = User::factory()->create();
-        $project = Project::factory()->for($user)->create();
+        $project = $this->brandOf($this->organizationWith($user));
 
         return Execution::factory()->processing()->create([
             'project_id' => $project->id,

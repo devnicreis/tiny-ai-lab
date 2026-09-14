@@ -6,30 +6,54 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Project\StoreProjectRequest;
 use App\Http\Requests\Project\UpdateProjectRequest;
 use App\Models\Project;
+use App\Services\OrganizationContext;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * CRUD das Brands (SAD 20.6).
+ *
+ * Toda consulta é escopada pela **organização ativa**, nunca por `user_id`: não
+ * existe Brand do usuário, e quem participa da organização enxerga todas as
+ * Marcas dela. O contexto chega pelo middleware `organization`.
+ */
 class ProjectController extends Controller
 {
+    public function __construct(
+        private readonly OrganizationContext $context,
+    ) {}
+
     /**
-     * Lista as Brands do usuário autenticado, escopadas por user_id.
+     * Brands da organização ativa.
+     *
+     * O escopo por `organization_id` substitui integralmente o antigo escopo
+     * por `user_id` (SAD 20.6). A hierarquia de sub-brands não amplia esta
+     * listagem: ela é apresentação, não escopo (CLAUDE.md regra 29).
      */
-    public function index(Request $request): JsonResponse
+    public function index(): JsonResponse
     {
         $projects = Project::query()
-            ->forUser($request->user()->id)
+            ->forOrganization($this->context->currentOrFail()->id)
             ->latest()
             ->paginate(15);
 
         return response()->json($projects);
     }
 
+    /**
+     * Cria a Brand dentro da organização ativa.
+     *
+     * A organização vem do contexto e nunca do corpo da requisição: aceitar um
+     * `organization_id` do cliente permitiria criar Marca em organização alheia.
+     * `created_by_user_id` é gravado como provenance — quem criou —, jamais como
+     * propriedade (SAD 20.2).
+     */
     public function store(StoreProjectRequest $request): JsonResponse
     {
         $project = Project::create([
             ...$request->validated(),
-            'user_id' => $request->user()->id,
+            'organization_id' => $this->context->currentOrFail()->id,
+            'created_by_user_id' => $request->user()->id,
         ]);
 
         return response()->json($project, Response::HTTP_CREATED);

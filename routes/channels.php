@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Execution;
 use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 
@@ -24,9 +25,11 @@ Broadcast::channel('App.Models.User.{id}', function (User $user, string $id): bo
 /**
  * Canal privado de uma Execution.
  *
- * Somente o dono da Execution escuta o canal. Os eventos transportam apenas
- * metadados de estado — nunca `executions.result` (SAD 9.6).
+ * Escuta quem é membro da organização dona da Brand da Execution — o mesmo
+ * critério da ExecutionPolicy, nunca `executions.user_id` (SAD 20.6): a Brand é
+ * da organização e o trabalho produzido nela também. Os eventos transportam
+ * apenas metadados de estado — nunca `executions.result` (SAD 9.6).
  */
 Broadcast::channel('execution.{executionId}', function (User $user, string $executionId): bool {
-    return $user->executions()->whereKey($executionId)->exists();
+    return Execution::query()->whereKey($executionId)->visibleTo($user)->exists();
 });

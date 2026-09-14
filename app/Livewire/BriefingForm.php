@@ -7,8 +7,10 @@ use App\Exceptions\InsufficientCreditsException;
 use App\Exceptions\NoActivePlanException;
 use App\Exceptions\PersonalCreditsConfirmationRequiredException;
 use App\Models\Execution;
+use App\Models\Organization;
 use App\Models\Project;
 use App\Services\ExecutionService;
+use App\Services\OrganizationContext;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -61,18 +63,35 @@ class BriefingForm extends Component
     }
 
     /**
-     * Brands do usuário autenticado, para o seletor do formulário.
+     * Brands da organização ativa, para o seletor do formulário (SAD 20.6).
      *
      * @return Collection<int, Project>
      */
     #[Computed]
     public function brands(): Collection
     {
+        $organization = $this->activeOrganization();
+
+        if ($organization === null) {
+            return new Collection;
+        }
+
         return Project::query()
             ->select(['id', 'brand_name', 'is_active'])
-            ->forUser((int) auth()->id())
+            ->forOrganization((int) $organization->getKey())
             ->orderBy('brand_name')
             ->get();
+    }
+
+    /**
+     * A organização ativa da sessão (SAD 20.5).
+     *
+     * O componente não decide contexto — apenas o lê. A seleção é do middleware
+     * `organization`, que protege a rota desta tela.
+     */
+    private function activeOrganization(): ?Organization
+    {
+        return app(OrganizationContext::class)->resolve();
     }
 
     /**
@@ -81,14 +100,15 @@ class BriefingForm extends Component
     protected function rules(): array
     {
         return [
-            // O `exists` é escopado ao usuário autenticado: o formulário nunca
-            // oferece nem aceita Brand de terceiro. A autorização definitiva
-            // continua sendo da ExecutionPolicy, aplicada pelo Service.
+            // O `exists` é escopado à organização ativa: o formulário nunca
+            // oferece nem aceita Brand de outra organização. A autorização
+            // definitiva continua sendo da ExecutionPolicy, aplicada pelo
+            // Service.
             'project_id' => [
                 'required',
                 'integer',
                 Rule::exists('projects', 'id')
-                    ->where('user_id', auth()->id())
+                    ->where('organization_id', $this->activeOrganization()?->getKey())
                     ->whereNull('deleted_at'),
             ],
             'pipeline_type' => ['required', 'string', Rule::in(Execution::PIPELINE_TYPES)],
@@ -131,10 +151,11 @@ class BriefingForm extends Component
             $execution = $executions->create(
                 user: auth()->user(),
                 // Model completo, e não a projeção do seletor: a Policy avalia
-                // `user_id`, coluna que o seletor não carrega.
+                // a organização dona da Brand, coluna que o seletor não carrega.
                 brand: Project::query()->findOrFail($validated['project_id']),
                 pipeline: $validated['pipeline_type'],
                 config: $this->config($validated),
+                activeOrganization: $this->activeOrganization(),
             );
         } catch (NoActivePlanException) {
             // Organização sem assinatura: nem upgrade nem compra de créditos

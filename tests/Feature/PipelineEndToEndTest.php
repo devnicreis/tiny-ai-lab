@@ -6,17 +6,18 @@ use App\Events\ExecutionFailed;
 use App\Events\ExecutionUpdated;
 use App\Exceptions\N8nConnectionException;
 use App\Jobs\ProcessBriefingJob;
+use App\Models\Execution;
+use App\Models\Organization;
 use App\Models\PlanLimit;
 use App\Models\Project;
 use App\Models\User;
-use App\Services\FirebaseService;
 use App\Services\N8nService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Mockery\MockInterface;
+use Tests\Concerns\InteractsWithOrganizations;
 use Tests\TestCase;
 
 /**
@@ -37,7 +38,7 @@ use Tests\TestCase;
  */
 class PipelineEndToEndTest extends TestCase
 {
-    use RefreshDatabase;
+    use InteractsWithOrganizations, RefreshDatabase;
 
     private const N8N_URL = 'https://n8n.tinyailab.test/webhook/pipeline';
 
@@ -55,6 +56,13 @@ class PipelineEndToEndTest extends TestCase
     private const BRIEFING_COST = 5;
 
     private const INITIAL_BALANCE = 100;
+
+    /**
+     * Plano comercial da Seção 12.6, gravado em `organizations.plan`. Os nomes
+     * antigos (`free`/`pro`/`enterprise`) pertenciam a `users.plan`, coluna que
+     * não existe mais.
+     */
+    private const PLAN = 'copy_briefing';
 
     protected function setUp(): void
     {
@@ -83,7 +91,7 @@ class PipelineEndToEndTest extends TestCase
      */
     private function seedBriefingCost(): void
     {
-        foreach (['free', 'pro', 'enterprise'] as $plan) {
+        foreach (['copy_briefing', 'studio_visual', 'full_pass'] as $plan) {
             PlanLimit::create([
                 'plan' => $plan,
                 'action' => self::PIPELINE,
@@ -93,32 +101,24 @@ class PipelineEndToEndTest extends TestCase
     }
 
     /**
-     * Autentica as requisições como o usuário informado, mockando o Firebase
-     * para devolver claims correspondentes ao seu `firebase_uid` (SAD 4).
+     * Organização com plano e saldo, seu Admin e a Brand ativa.
      *
-     * @return array<string, string>
+     * Quem paga é a organização (SAD 12.1); o usuário aparece na conta apenas
+     * como quem disparou a execução.
+     *
+     * @return array{0: User, 1: Project, 2: Organization}
      */
-    private function actingAsFirebaseUser(User $user): array
+    private function organizationWithBrand(int $balance = self::INITIAL_BALANCE): array
     {
-        $this->mock(FirebaseService::class, function (MockInterface $mock) use ($user) {
-            $mock->shouldReceive('verifyIdToken')->andReturn([
-                'sub' => $user->firebase_uid,
-                'email' => $user->email,
-                'name' => $user->name,
-                'email_verified' => true,
-            ]);
-        });
+        $user = User::factory()->create(['firebase_uid' => 'uid-pipeline-owner']);
 
-        return ['Authorization' => 'Bearer valid-id-token'];
-    }
-
-    private function userWithCredits(int $balance = self::INITIAL_BALANCE): User
-    {
-        return User::factory()->create([
-            'firebase_uid' => 'uid-pipeline-owner',
+        $organization = $this->organizationWith($user, attributes: [
+            'plan' => self::PLAN,
             'plan_credits_balance' => $balance,
-            'credits_used_this_month' => 0,
+            'plan_credits_used_this_month' => 0,
         ]);
+
+        return [$user, $this->brandOf($organization, ['is_active' => true]), $organization];
     }
 
     /**
@@ -126,7 +126,7 @@ class PipelineEndToEndTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function requestPipeline(User $user, Project $brand): array
+    private function requestPipeline(Project $brand): array
     {
         return [
             'project_id' => $brand->id,
@@ -152,9 +152,8 @@ class PipelineEndToEndTest extends TestCase
         Event::fake([ExecutionUpdated::class, ExecutionFailed::class]);
         Http::fake([self::N8N_URL => Http::response(['received' => true, 'workflow' => 'briefing'])]);
 
-        $user = $this->userWithCredits();
-        $brand = Project::factory()->for($user)->create(['is_active' => true]);
-        $headers = $this->actingAsFirebaseUser($user);
+        [$user, $brand, $organization] = $this->organizationWithBrand();
+        $headers = $this->firebaseHeaders($user);
 
         /*
          * Etapas 1 a 6 (SAD 6.1): validação, Brand, assinatura, créditos,
@@ -162,7 +161,7 @@ class PipelineEndToEndTest extends TestCase
          */
         $response = $this->postJson(
             '/api/executions',
-            $this->requestPipeline($user, $brand),
+            $this->requestPipeline($brand),
             $headers,
         );
 
@@ -184,10 +183,11 @@ class PipelineEndToEndTest extends TestCase
             'failed_at' => null,
         ]);
 
-        // O débito acontece na criação, a partir de `plan_limits` (SAD 12.5).
-        $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
-        $this->assertSame(self::BRIEFING_COST, $user->credits_used_this_month);
+        // O débito acontece na criação, a partir de `plan_limits` (SAD 12.5), e
+        // sai das carteiras da organização (SAD 12.3).
+        $organization->refresh();
+        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $organization->plan_credits_balance);
+        $this->assertSame(self::BRIEFING_COST, $organization->plan_credits_used_this_month);
 
         Queue::assertPushedOn(
             'default',
@@ -205,7 +205,7 @@ class PipelineEndToEndTest extends TestCase
          */
         (new ProcessBriefingJob($executionId))->handle(app(N8nService::class));
 
-        $execution = $user->executions()->findOrFail($executionId);
+        $execution = Execution::query()->visibleTo($user)->findOrFail($executionId);
 
         $this->assertSame('processing', $execution->status);
         $this->assertNull($execution->result);
@@ -273,14 +273,15 @@ class PipelineEndToEndTest extends TestCase
 
         // O callback não mexe em contabilidade: o débito continua sendo o único,
         // feito na criação a partir de `plan_limits` (CLAUDE.md regra 9).
-        $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
-        $this->assertSame(self::BRIEFING_COST, $user->credits_used_this_month);
+        $organization->refresh();
+        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $organization->plan_credits_balance);
+        $this->assertSame(self::BRIEFING_COST, $organization->plan_credits_used_this_month);
         $this->assertSame(self::BRIEFING_COST, $execution->credits_consumed);
 
         /*
-         * Fecho do ciclo: o resultado só é legível pelo dono, e apenas no
-         * endpoint de detalhe (SAD 5.12 e CLAUDE.md regra 11).
+         * Fecho do ciclo: o resultado só é legível por quem participa da
+         * organização dona da Brand, e apenas no endpoint de detalhe
+         * (SAD 5.12 e CLAUDE.md regra 11).
          */
         $this->getJson("/api/executions/{$executionId}", $headers)
             ->assertOk()
@@ -301,13 +302,12 @@ class PipelineEndToEndTest extends TestCase
         // resposta HTTP (SAD 12.2).
         Http::fake([self::N8N_URL => Http::failedConnection('Connection refused')]);
 
-        $user = $this->userWithCredits();
-        $brand = Project::factory()->for($user)->create(['is_active' => true]);
-        $headers = $this->actingAsFirebaseUser($user);
+        [$user, $brand, $organization] = $this->organizationWithBrand();
+        $headers = $this->firebaseHeaders($user);
 
         $executionId = $this->postJson(
             '/api/executions',
-            $this->requestPipeline($user, $brand),
+            $this->requestPipeline($brand),
             $headers,
         )->assertAccepted()->json('execution_id');
 
@@ -329,14 +329,17 @@ class PipelineEndToEndTest extends TestCase
             // Enquanto há retry pendente a Execution permanece `processing`:
             // um estado final aqui mentiria ao usuário sobre um pipeline que
             // ainda pode ser despachado.
-            $this->assertSame('processing', $user->executions()->find($executionId)->status);
+            $this->assertSame(
+                'processing',
+                Execution::query()->visibleTo($user)->find($executionId)->status,
+            );
         }
 
         // Tentativas esgotadas: o Worker chama failed() e só então o estado
         // terminal é gravado.
         $job->failed(N8nConnectionException::unreachable($executionId, 'ConnectionException'));
 
-        $execution = $user->executions()->findOrFail($executionId);
+        $execution = Execution::query()->visibleTo($user)->findOrFail($executionId);
 
         $this->assertSame('failed', $execution->status);
         $this->assertNotNull($execution->failed_at);
@@ -366,8 +369,10 @@ class PipelineEndToEndTest extends TestCase
         // lacuna registrada em SAD 6.2 como [A DEFINIR] — este assert existe
         // para que a decisão, quando vier, quebre o teste em vez de passar
         // despercebida.
-        $user->refresh();
-        $this->assertSame(self::INITIAL_BALANCE - self::BRIEFING_COST, $user->plan_credits_balance);
+        $this->assertSame(
+            self::INITIAL_BALANCE - self::BRIEFING_COST,
+            $organization->refresh()->plan_credits_balance,
+        );
 
         // Depois de falhar, a Execution é imutável para o n8n: um callback
         // atrasado não a ressuscita (SAD 7.8).
@@ -389,13 +394,12 @@ class PipelineEndToEndTest extends TestCase
         Event::fake([ExecutionUpdated::class, ExecutionFailed::class]);
         Http::fake();
 
-        $user = $this->userWithCredits(self::BRIEFING_COST - 1);
-        $brand = Project::factory()->for($user)->create(['is_active' => true]);
+        [$user, $brand, $organization] = $this->organizationWithBrand(self::BRIEFING_COST - 1);
 
         $this->postJson(
             '/api/executions',
-            $this->requestPipeline($user, $brand),
-            $this->actingAsFirebaseUser($user),
+            $this->requestPipeline($brand),
+            $this->firebaseHeaders($user),
         )
             ->assertStatus(402)
             ->assertJsonPath('error', 'insufficient_credits')
@@ -410,7 +414,8 @@ class PipelineEndToEndTest extends TestCase
         Http::assertNothingSent();
         Event::assertNothingDispatched();
 
-        $this->assertSame(self::BRIEFING_COST - 1, $user->refresh()->plan_credits_balance);
-        $this->assertSame(0, $user->credits_used_this_month);
+        $organization->refresh();
+        $this->assertSame(self::BRIEFING_COST - 1, $organization->plan_credits_balance);
+        $this->assertSame(0, $organization->plan_credits_used_this_month);
     }
 }
