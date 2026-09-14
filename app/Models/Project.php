@@ -14,7 +14,7 @@ class Project extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'user_id',
+        'organization_id',
         'parent_project_id',
         'brand_name',
         'website',
@@ -35,9 +35,9 @@ class Project extends Model
         ];
     }
 
-    public function user(): BelongsTo
+    public function organization(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Organization::class);
     }
 
     public function executions(): HasMany
@@ -67,9 +67,9 @@ class Project extends Model
         return $this->hasMany(Project::class, 'parent_project_id');
     }
 
-    public function scopeForUser(Builder $query, int $userId): Builder
+    public function scopeForOrganization(Builder $query, int $orgId): Builder
     {
-        return $query->where('user_id', $userId);
+        return $query->where('organization_id', $orgId);
     }
 
     public function scopeActive(Builder $query): Builder

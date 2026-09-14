@@ -3,10 +3,10 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\OrganizationRole;
 use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -22,10 +22,7 @@ class User extends Authenticatable
         'email',
         'password',
         'firebase_uid',
-        'plan',
-        'plan_credits_balance',
         'purchased_credits_balance',
-        'credits_used_this_month',
         'has_completed_setup',
         'notify_on_completion',
     ];
@@ -45,26 +42,27 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'plan' => 'string',
-            'plan_credits_balance' => 'integer',
             'purchased_credits_balance' => 'integer',
             'has_completed_setup' => 'boolean',
             'notify_on_completion' => 'boolean',
         ];
     }
 
-    public function projects(): HasMany
+    public function organizations(): BelongsToMany
     {
-        return $this->hasMany(Project::class);
+        return $this->belongsToMany(Organization::class)
+            ->withPivot('role', 'joined_at');
     }
 
-    public function executions(): HasMany
+    public function roleIn(Organization $organization): ?OrganizationRole
     {
-        return $this->hasMany(Execution::class);
+        $role = $organization->roleOf($this);
+
+        return $role !== null ? OrganizationRole::from($role) : null;
     }
 
-    public function scopeByPlan(Builder $query, string $plan): Builder
+    public function belongsToOrganization(Organization $organization): bool
     {
-        return $query->where('plan', $plan);
+        return $organization->hasMember($this);
     }
 }

@@ -45,7 +45,6 @@ class Execution extends Model
 
     protected $fillable = [
         'project_id',
-        'user_id',
         'pipeline_type',
         'status',
         'config',
@@ -72,9 +71,11 @@ class Execution extends Model
         return $this->belongsTo(Project::class);
     }
 
-    public function user(): BelongsTo
+    public function scopeForOrganization(Builder $query, int $orgId): Builder
     {
-        return $this->belongsTo(User::class);
+        return $query->whereHas('project', function (Builder $query) use ($orgId) {
+            $query->where('organization_id', $orgId);
+        });
     }
 
     public function scopeForBrand(
