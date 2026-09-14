@@ -3,6 +3,8 @@
 use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
 use App\Exceptions\N8nConnectionException;
+use App\Exceptions\NoActivePlanException;
+use App\Exceptions\PersonalCreditsConfirmationRequiredException;
 use App\Http\Middleware\VerifyFirebaseToken;
 use App\Http\Middleware\VerifyN8nSecret;
 use Illuminate\Foundation\Application;
@@ -49,15 +51,31 @@ return Application::configure(basePath: dirname(__DIR__))
             return false;
         });
 
+        // Organização sem assinatura é 402 com CTA de assinatura — nunca a
+        // mesma resposta de saldo insuficiente, que também é 402 mas se resolve
+        // comprando créditos. Cada bloqueio leva o usuário a uma tela distinta
+        // e jamais pode ser colapsado em uma mensagem genérica (SAD 12.12).
+        $exceptions->render(function (NoActivePlanException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => 'This organization has no active plan.',
+                'error' => 'no_active_plan',
+                'cta' => 'Subscribe to a plan',
+            ], 402);
+        });
+
         // Saldo insuficiente é decisão de negócio, não erro de aplicação:
-        // responde 402 com a CTA "Buy AI Credits" (SAD 12.7 e L.6).
+        // responde 402 com a CTA "Buy AI Credits" (SAD 12.12 e L.6).
         $exceptions->render(function (InsufficientCreditsException $e, Request $request) {
             if (! $request->is('api/*') && ! $request->expectsJson()) {
                 return null;
             }
 
             return response()->json([
-                'message' => 'Créditos insuficientes para executar esta ação.',
+                'message' => 'Not enough credits to run this action.',
                 'error' => 'insufficient_credits',
                 'required' => $e->required,
                 'available' => $e->available,
@@ -74,9 +92,25 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return response()->json([
-                'message' => 'This feature is not available on your current plan.',
+                'message' => 'This feature is not included in your plan.',
                 'error' => 'feature_not_available',
-                'cta' => 'Upgrade plan',
+                'cta' => 'Upgrade your plan',
             ], 403);
+        });
+
+        // 409 não é bloqueio, é pergunta: o custo tocaria a carteira pessoal e
+        // o usuário ainda não autorizou. O breakdown vai no corpo para que o
+        // modal de confirmação mostre de onde sairia cada crédito — nada foi
+        // debitado e nenhuma Execution existe neste ponto (SAD 12.19).
+        $exceptions->render(function (PersonalCreditsConfirmationRequiredException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => 'This action will use your personal credits.',
+                'error' => 'personal_credits_confirmation_required',
+                'breakdown' => $e->breakdown,
+            ], 409);
         });
     })->create();

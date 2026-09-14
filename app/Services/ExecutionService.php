@@ -2,7 +2,10 @@
 
 namespace App\Services;
 
+use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
+use App\Exceptions\NoActivePlanException;
+use App\Exceptions\PersonalCreditsConfirmationRequiredException;
 use App\Jobs\ProcessBriefingJob;
 use App\Models\Execution;
 use App\Models\Project;
@@ -31,32 +34,57 @@ class ExecutionService
     /**
      * Cria a Execution, debita o crédito e enfileira o pipeline.
      *
+     * Quem paga é a **Organização dona da Brand** (SAD 12.1). A organização é
+     * derivada da Brand alvo, e não recebida do chamador, porque é a Brand que
+     * o usuário escolheu e é `projects.organization_id` que diz de quem ela é:
+     * aceitar uma organização pelo parâmetro permitiria cobrar a execução de
+     * uma Brand no saldo de outra organização. Quando o contexto de sessão da
+     * Seção 20.5 existir, ele continuará apenas *validando* que a Brand ativa
+     * pertence à organização ativa (CLAUDE.md regra 34) — nunca substituindo
+     * esta derivação.
+     *
      * O débito e a criação compartilham uma transação porque a corrida entre
      * duas solicitações simultâneas só é resolvida dentro de `deduct()`, sob
      * lock: se o saldo real não cobrir o custo, a Execution criada instantes
-     * antes precisa desaparecer junto — SAD 12.7 exige que saldo insuficiente
-     * não deixe execução nenhuma para trás.
+     * antes precisa desaparecer junto — SAD 12.12 exige que saldo insuficiente
+     * não deixe execução nenhuma para trás. O mesmo vale para o 409 da carteira
+     * pessoal, que é pergunta e não débito.
      *
      * O Job é despachado apenas após o commit: um Worker que lesse a Execution
      * antes dela existir no banco falharia em `findOrFail`.
      *
+     * `$confirmPersonalCredits` precisa vir da requisição originada pela
+     * confirmação do usuário. Nenhum chamador pode injetá-la por conta própria
+     * (SAD 12.19).
+     *
      * @param  array<string, mixed>  $config
      *
      * @throws AuthorizationException se a Brand não pertencer ao usuário
+     * @throws NoActivePlanException se a organização da Brand não tem assinatura ativa
+     * @throws FeatureNotAvailableException se o plano da organização não libera o pipeline
      * @throws InsufficientCreditsException se o saldo não cobrir o custo do pipeline
+     * @throws PersonalCreditsConfirmationRequiredException se o custo tocar a carteira pessoal sem confirmação
      */
-    public function create(User $user, Project $brand, string $pipeline, array $config = []): Execution
-    {
+    public function create(
+        User $user,
+        Project $brand,
+        string $pipeline,
+        array $config = [],
+        bool $confirmPersonalCredits = false,
+    ): Execution {
         // A autorização vive na ExecutionPolicy e é avaliada aqui para valer
         // igualmente às duas portas de entrada — o Gate é a única autoridade,
         // nunca o chamador.
         Gate::forUser($user)->authorize('create', [Execution::class, $brand]);
 
-        if (! $this->credits->canExecute($user, $pipeline)) {
-            throw InsufficientCreditsException::for($user, $pipeline, $this->credits->costFor($pipeline));
-        }
+        $organization = $brand->organization()->firstOrFail();
 
-        $execution = DB::transaction(function () use ($user, $brand, $pipeline, $config): Execution {
+        // Os quatro desfechos negativos sobem como exceptions distintas, cada
+        // uma com seu código HTTP e sua CTA (SAD 12.12); não há booleano a
+        // testar aqui.
+        $this->credits->canExecute($organization, $user, $pipeline, $confirmPersonalCredits);
+
+        $execution = DB::transaction(function () use ($organization, $user, $brand, $pipeline, $config, $confirmPersonalCredits): Execution {
             $execution = Execution::create([
                 'project_id' => $brand->id,
                 'user_id' => $user->id,
@@ -66,7 +94,7 @@ class ExecutionService
                 'credits_consumed' => $this->credits->costFor($pipeline),
             ]);
 
-            $this->credits->deduct($user, $pipeline);
+            $this->credits->deduct($organization, $user, $pipeline, $confirmPersonalCredits);
 
             return $execution;
         });

@@ -49,6 +49,7 @@ class StoreBriefingRequest extends FormRequest
             ],
             'pipeline_type' => ['required', 'string', Rule::in(Execution::PIPELINE_TYPES)],
             'config' => ['nullable', 'array'],
+            'confirm_personal_credits' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -73,6 +74,19 @@ class StoreBriefingRequest extends FormRequest
     public function brand(): Project
     {
         return $this->brand ??= Project::query()->findOrFail($this->integer('project_id'));
+    }
+
+    /**
+     * O usuário autorizou o uso da carteira pessoal nesta ação (SAD 12.19).
+     *
+     * Autoriza a **carteira**, não um valor: o quanto sai dela é recalculado
+     * dentro da transação de débito. A ausência da flag é o estado normal — a
+     * carteira pessoal só é tocada por um reenvio explícito, vindo da
+     * confirmação do usuário diante do 409.
+     */
+    public function confirmsPersonalCredits(): bool
+    {
+        return $this->boolean('confirm_personal_credits');
     }
 
     /**

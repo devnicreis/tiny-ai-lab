@@ -4,6 +4,8 @@ namespace App\Livewire;
 
 use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
+use App\Exceptions\NoActivePlanException;
+use App\Exceptions\PersonalCreditsConfirmationRequiredException;
 use App\Models\Execution;
 use App\Models\Project;
 use App\Services\ExecutionService;
@@ -134,6 +136,27 @@ class BriefingForm extends Component
                 pipeline: $validated['pipeline_type'],
                 config: $this->config($validated),
             );
+        } catch (NoActivePlanException) {
+            // Organização sem assinatura: nem upgrade nem compra de créditos
+            // resolvem, e a mensagem não pode citar saldo (SAD 12.12 e 12.18).
+            // Assinar é ação de Admin da organização.
+            $this->upgradeMessage = 'This organization has no active plan. An organization Admin needs to subscribe before running pipelines.';
+
+            return null;
+        } catch (PersonalCreditsConfirmationRequiredException $e) {
+            // O custo ultrapassa as carteiras da organização e tocaria a
+            // carteira pessoal. O modal de confirmação da Seção 12.19 é trabalho
+            // de interface ainda pendente; até lá o componente apenas expõe o
+            // breakdown, sem jamais reenviar a confirmação por conta própria —
+            // a flag precisa vir de um ato explícito do usuário.
+            $this->upgradeMessage = sprintf(
+                'This action needs %d credit(s) from your personal wallet — your organization covers only %d of the %d required.',
+                $e->breakdown['personal_credits'],
+                $e->breakdown['organization_plan_credits'] + $e->breakdown['organization_purchased_credits'],
+                $e->breakdown['total_cost'],
+            );
+
+            return null;
         } catch (FeatureNotAvailableException) {
             // Pipeline fora do plano: comprar créditos não destravaria a ação,
             // então a mensagem aponta para upgrade e nunca cita saldo (SAD 12.5).

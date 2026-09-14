@@ -70,6 +70,10 @@ class ExecutionController extends Controller
             brand: $request->brand(),
             pipeline: (string) $request->validated('pipeline_type'),
             config: $request->config(),
+            // A flag vem do reenvio que o usuário confirmou no modal do 409 e
+            // de lugar nenhum mais: o Controller apenas a repassa, jamais a
+            // presume (SAD 12.19).
+            confirmPersonalCredits: $request->confirmsPersonalCredits(),
         );
 
         return response()->json([
