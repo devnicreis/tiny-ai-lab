@@ -45,6 +45,7 @@ class Execution extends Model
 
     protected $fillable = [
         'project_id',
+        'user_id',
         'pipeline_type',
         'status',
         'config',
@@ -69,6 +70,31 @@ class Execution extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /**
+     * Quem disparou a execução — auditoria e destino do débito da carteira
+     * pessoal (SAD 12.2). Nunca é critério de autorização nem de escopo
+     * (SAD 20.6).
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Execuções visíveis ao usuário: as das organizações de que ele participa.
+     *
+     * É o recorte de *autorização* traduzido em consulta — o mesmo critério da
+     * ExecutionPolicy — e substitui o antigo `where('user_id', ...)`. Não
+     * substitui o recorte da Brand ativa, que continua sendo `forBrand()`
+     * (CLAUDE.md regra 10).
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        return $query->whereHas('project.organization.users', function (Builder $query) use ($user) {
+            $query->whereKey($user->getKey());
+        });
     }
 
     public function scopeForOrganization(Builder $query, int $orgId): Builder

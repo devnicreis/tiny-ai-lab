@@ -2,7 +2,10 @@
 
 namespace App\Actions\Auth;
 
+use App\Enums\OrganizationRole;
+use App\Models\Organization;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -32,6 +35,7 @@ class SyncFirebaseUserAction
         $name = $claims['name'] ?? null;
 
         $user = User::firstOrNew(['firebase_uid' => $uid]);
+        $isNewUser = ! $user->exists;
 
         $user->email = $email;
         $user->name = is_string($name) && $name !== '' ? $name : Str::before($email, '@');
@@ -40,7 +44,24 @@ class SyncFirebaseUserAction
             $user->email_verified_at = now();
         }
 
-        $user->save();
+        // A organização Personal só nasce para quem está sendo criado agora
+        // (SAD 20.3). Usuários que já existiam antes desta sessão e ainda não
+        // têm organização nenhuma não são tocados aqui — esse backfill já foi
+        // resolvido pela migration da Sessão 4.0b; recriá-lo neste Action
+        // duplicaria a regra em dois lugares.
+        //
+        // Usuário e organização nascem na mesma transação: se a criação da
+        // organização Personal falhar, o usuário não pode ficar persistido sem
+        // ela — nenhum usuário existe sem ao menos uma organização (SAD 20.3).
+        if ($isNewUser) {
+            DB::transaction(function () use ($user): void {
+                $user->save();
+
+                $this->createPersonalOrganization($user);
+            });
+        } else {
+            $user->save();
+        }
 
         if ($user->wasRecentlyCreated) {
             // `plan` e os dois saldos de crédito vêm dos defaults do schema.
@@ -48,5 +69,33 @@ class SyncFirebaseUserAction
         }
 
         return $user;
+    }
+
+    /**
+     * Cria a organização "Personal" automática do primeiro login (SAD 20.3).
+     *
+     * Não é um tipo especial de organização — apenas uma organização comum,
+     * sem plano (SAD 12.18), com o usuário como Owner e único membro
+     * (ADR-010). O nome é convenção de apresentação, nunca um flag de
+     * comportamento.
+     *
+     * A participação é escrita aqui, e não pelo `OrganizationMembershipService`,
+     * porque este é o nascimento do Owner: o serviço recusa `owner` em qualquer
+     * outro caminho que não a transferência de posse.
+     */
+    private function createPersonalOrganization(User $user): void
+    {
+        $organization = Organization::create([
+            'name' => 'Personal',
+            // Nunca apenas "personal": o slug é único e vários usuários
+            // recebem a mesma organização "Personal" por nome.
+            'slug' => 'personal-'.Str::lower(Str::random(8)),
+            'plan' => null,
+        ]);
+
+        $organization->users()->attach($user->id, [
+            'role' => OrganizationRole::Owner->value,
+            'joined_at' => now(),
+        ]);
     }
 }

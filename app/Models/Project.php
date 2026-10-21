@@ -15,6 +15,7 @@ class Project extends Model
 
     protected $fillable = [
         'organization_id',
+        'created_by_user_id',
         'parent_project_id',
         'brand_name',
         'website',
@@ -38,6 +39,18 @@ class Project extends Model
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);
+    }
+
+    /**
+     * Quem criou a Brand — provenance, nunca propriedade (SAD 20.2).
+     *
+     * A Brand pertence à Organização. Esta relação existe para auditoria e para
+     * a interface ("criada por"), e não pode aparecer em nenhuma verificação de
+     * autorização nem em nenhum escopo de consulta.
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
     public function executions(): HasMany

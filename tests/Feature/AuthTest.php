@@ -69,7 +69,8 @@ class AuthTest extends TestCase
             ->assertJsonPath('user.purchased_credits_balance', 0)
             ->assertJsonCount(1, 'organizations')
             ->assertJsonPath('organizations.0.name', 'Personal')
-            ->assertJsonPath('organizations.0.role', 'admin')
+            // Quem cria a Personal é o Owner dela (SAD 20.3, ADR-010).
+            ->assertJsonPath('organizations.0.role', 'owner')
             // Uma organização apenas: já é o contexto ativo, sem escolha
             // pendente (SAD 20.5).
             ->assertJsonPath('active_organization.name', 'Personal')
@@ -117,7 +118,7 @@ class AuthTest extends TestCase
             'purchased_credits_balance' => 120,
         ]);
 
-        $organization = $this->organizationWith($user, OrganizationRole::Admin, [
+        $organization = $this->organizationWith($user, OrganizationRole::Owner, [
             'name' => 'Arkion',
             'slug' => 'arkion',
             'plan' => 'studio_visual',
@@ -138,13 +139,19 @@ class AuthTest extends TestCase
             ->assertJsonPath('organizations.0.name', 'Arkion')
             ->assertJsonPath('organizations.0.slug', 'arkion')
             // Papel na organização — outro eixo, jamais `is_admin` (SAD 20.7).
-            ->assertJsonPath('organizations.0.role', 'admin')
+            ->assertJsonPath('organizations.0.role', 'owner')
+            ->assertJsonPath('organizations.0.role_label', 'Owner')
             ->assertJsonPath('active_organization.id', $organization->id)
             ->assertJsonPath('active_organization.plan', 'studio_visual')
             // As carteiras da organização, separadas e nunca somadas
             // (CLAUDE.md regra 27).
             ->assertJsonPath('active_organization.plan_credits_balance', 10_000)
-            ->assertJsonPath('active_organization.purchased_credits_balance', 500);
+            ->assertJsonPath('active_organization.purchased_credits_balance', 500)
+            // A interface recebe a capacidade resolvida, nunca a deduz do papel
+            // (SAD 12.12).
+            ->assertJsonPath('active_organization.role', 'owner')
+            ->assertJsonPath('active_organization.capabilities.manage_billing', true)
+            ->assertJsonPath('active_organization.capabilities.purchase_for_organization', true);
 
         // O middleware sincroniza o usuário existente em vez de duplicá-lo.
         $this->assertDatabaseCount('users', 1);
@@ -187,6 +194,11 @@ class AuthTest extends TestCase
         $this->getJson('/api/auth/me', ['Authorization' => 'Bearer valid-id-token'])
             ->assertOk()
             ->assertJsonPath('user.is_admin', true)
-            ->assertJsonPath('organizations.0.role', 'member');
+            ->assertJsonPath('organizations.0.role', 'member')
+            // Staff da plataforma não ganha capacidade de Owner (SAD 20.7):
+            // como Member, não vê CTA de faturamento nem de compra para a org.
+            ->assertJsonPath('active_organization.capabilities.manage_billing', false)
+            ->assertJsonPath('active_organization.capabilities.purchase_for_organization', false)
+            ->assertJsonPath('active_organization.capabilities.manage_brands', false);
     }
 }

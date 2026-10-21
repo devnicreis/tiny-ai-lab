@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Actions\Auth\SyncFirebaseUserAction;
+use App\Enums\OrganizationRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\AuthenticateFirebaseRequest;
 use App\Models\Organization;
@@ -74,10 +75,16 @@ class AuthController extends Controller
      * dele significa organização sem assinatura ativa, que é o estado inicial
      * normal e não um erro (SAD 12.18).
      *
+     * O papel viaja como um dos três valores de `OrganizationRole` — `owner`,
+     * `admin` ou `member` (ADR-010) — com o rótulo de interface ao lado. Na
+     * organização ativa vão também as `capabilities` já resolvidas: a interface
+     * decide quais CTAs mostrar a partir delas e nunca deduz a capacidade pelo
+     * valor do papel (SAD 12.12).
+     *
      * @return array{
      *     user: array{id: int, email: string, name: string, is_admin: bool, purchased_credits_balance: int},
-     *     organizations: array<int, array{id: int, name: string, slug: string, role: string|null}>,
-     *     active_organization: array{id: int, name: string, plan: string|null, plan_credits_balance: int, purchased_credits_balance: int}|null
+     *     organizations: array<int, array{id: int, name: string, slug: string, role: string, role_label: string}>,
+     *     active_organization: array{id: int, name: string, plan: string|null, plan_credits_balance: int, purchased_credits_balance: int, role: string|null, role_label: string|null, capabilities: array<string, bool>}|null
      * }
      */
     private function toPayload(User $user): array
@@ -92,21 +99,26 @@ class AuthController extends Controller
             ],
             'organizations' => $user->organizations()
                 ->get(['organizations.id', 'organizations.name', 'organizations.slug'])
-                ->map(fn (Organization $organization): array => [
-                    'id' => $organization->id,
-                    'name' => $organization->name,
-                    'slug' => $organization->slug,
+                ->map(function (Organization $organization): array {
                     // O papel vem da pivot: é por organização, e nunca se
                     // confunde com `is_admin` (SAD 20.7).
-                    'role' => $organization->pivot->role,
-                ])
+                    $role = OrganizationRole::from($organization->pivot->role);
+
+                    return [
+                        'id' => $organization->id,
+                        'name' => $organization->name,
+                        'slug' => $organization->slug,
+                        'role' => $role->value,
+                        'role_label' => $role->label(),
+                    ];
+                })
                 ->all(),
             'active_organization' => $this->activeOrganization(),
         ];
     }
 
     /**
-     * @return array{id: int, name: string, plan: string|null, plan_credits_balance: int, purchased_credits_balance: int}|null
+     * @return array{id: int, name: string, plan: string|null, plan_credits_balance: int, purchased_credits_balance: int, role: string|null, role_label: string|null, capabilities: array<string, bool>}|null
      */
     private function activeOrganization(): ?array
     {
@@ -116,12 +128,18 @@ class AuthController extends Controller
             return null;
         }
 
+        $role = $this->context->currentRole();
+
         return [
             'id' => $organization->id,
             'name' => $organization->name,
             'plan' => $organization->plan,
             'plan_credits_balance' => (int) $organization->plan_credits_balance,
             'purchased_credits_balance' => (int) $organization->purchased_credits_balance,
+            'role' => $role?->value,
+            'role_label' => $role?->label(),
+            // Sem papel não há capacidade: a interface não mostra CTA algum.
+            'capabilities' => $role?->capabilities() ?? [],
         ];
     }
 }

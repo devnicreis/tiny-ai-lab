@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Execution;
 use App\Models\Project;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,6 +21,13 @@ class ExecutionFactory extends Factory
     {
         return [
             'project_id' => Project::factory(),
+            // Quem disparou a execução — auditoria, nunca propriedade
+            // (SAD 20.6). O default é um membro da organização dona da Brand,
+            // porque é isso que o domínio produz: ninguém dispara execução em
+            // organização de que não participa.
+            'user_id' => fn (array $attributes) => self::memberOfBrandOrganization(
+                (int) $attributes['project_id'],
+            ),
             'pipeline_type' => fake()->randomElement([
                 'brand_research',
                 'briefing_generation',
@@ -36,6 +44,20 @@ class ExecutionFactory extends Factory
             'tokens_used' => 0,
             'credits_consumed' => fake()->numberBetween(1, 50),
         ];
+    }
+
+    /**
+     * Um membro da organização dona da Brand — de preferência quem a criou.
+     */
+    private static function memberOfBrandOrganization(int $projectId): int
+    {
+        $project = Project::query()->findOrFail($projectId);
+
+        $userId = $project->organization()->firstOrFail()
+            ->users()
+            ->value('users.id');
+
+        return (int) ($userId ?? User::factory()->create()->id);
     }
 
     /**

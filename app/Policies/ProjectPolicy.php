@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\OrganizationRole;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\OrganizationContext;
@@ -17,10 +18,13 @@ use App\Services\OrganizationContext;
  * > pela verificação de participação. `user_id` deixou de ser critério de
  * > isolamento (SAD 20.6).
  *
- * Gerenciar Marcas — criar, editar e excluir — é capacidade de **qualquer
- * membro**, Admin ou Member (SAD 20.4). O papel só é consultado no que é
- * faturamento, participação ou existência da organização, e isso vive na
- * OrganizationPolicy.
+ * Enxergar a Brand é de **qualquer membro**. Criar, editar — inclusive o
+ * Brand Core — e excluir são de Owner e Admin, pelo `canManageBrands()` de
+ * `OrganizationRole` (SAD 5.9 e 20.4). Um Member roda as ferramentas de IA nas
+ * Marcas, mas não altera a Brand Memory.
+ *
+ * > 🔁 SUPERSEDED (ADR-010): gerenciar Marcas era capacidade de qualquer
+ * > membro. Member deixou de criar, editar e excluir Marcas.
  */
 class ProjectPolicy
 {
@@ -29,7 +33,7 @@ class ProjectPolicy
     ) {}
 
     /**
-     * Criar uma Brand exige uma organização ativa da qual o usuário participe.
+     * Criar uma Brand exige papel que gerencie Marcas na organização ativa.
      *
      * A Brand nova nasce na organização ativa da sessão — não há outro destino
      * possível, porque não existe marca órfã (SAD 20.2). Limites comerciais de
@@ -39,31 +43,38 @@ class ProjectPolicy
     {
         $organization = $this->context->current();
 
-        return $organization !== null && $user->belongsToOrganization($organization);
+        return $organization !== null
+            && ($user->roleIn($organization)?->canManageBrands() ?? false);
     }
 
     public function view(User $user, Project $project): bool
     {
-        return $this->belongsToOwner($user, $project);
+        return $this->roleInOwner($user, $project) !== null;
     }
 
     public function update(User $user, Project $project): bool
     {
-        return $this->belongsToOwner($user, $project);
+        return $this->canManageBrandsOf($user, $project);
     }
 
     public function delete(User $user, Project $project): bool
     {
-        return $this->belongsToOwner($user, $project);
+        return $this->canManageBrandsOf($user, $project);
     }
 
     public function restore(User $user, Project $project): bool
     {
-        return $this->belongsToOwner($user, $project);
+        return $this->canManageBrandsOf($user, $project);
+    }
+
+    private function canManageBrandsOf(User $user, Project $project): bool
+    {
+        return $this->roleInOwner($user, $project)?->canManageBrands() ?? false;
     }
 
     /**
-     * Participação na organização dona da Brand.
+     * O papel do usuário na organização dona da Brand, ou `null` para quem não
+     * participa dela.
      *
      * A organização é carregada da própria Brand, e não do contexto de sessão:
      * uma Execution ou uma Brand aberta por link direto continua acessível a
@@ -71,10 +82,10 @@ class ProjectPolicy
      * momento seja outra. O recorte por contexto ativo é das **consultas**
      * (SAD 20.6); a Policy responde por participação.
      */
-    private function belongsToOwner(User $user, Project $project): bool
+    private function roleInOwner(User $user, Project $project): ?OrganizationRole
     {
         $organization = $project->organization()->first();
 
-        return $organization !== null && $user->belongsToOrganization($organization);
+        return $organization !== null ? $user->roleIn($organization) : null;
     }
 }

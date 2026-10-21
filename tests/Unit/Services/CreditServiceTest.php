@@ -71,7 +71,7 @@ class CreditServiceTest extends TestCase
      */
     private function organizacao(int $planCredits = 0, int $purchasedCredits = 0, ?string $plan = self::PLAN): Organization
     {
-        return Organization::factory()->create([
+        return Organization::factory()->withOwner()->create([
             'plan' => $plan,
             'plan_credits_balance' => $planCredits,
             'purchased_credits_balance' => $purchasedCredits,

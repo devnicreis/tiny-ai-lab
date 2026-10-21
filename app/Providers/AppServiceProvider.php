@@ -3,13 +3,16 @@
 namespace App\Providers;
 
 use App\Models\Execution;
+use App\Models\Organization;
 use App\Models\Project;
 use App\Policies\ExecutionPolicy;
+use App\Policies\OrganizationPolicy;
 use App\Policies\ProjectPolicy;
 use App\Services\CreditService;
 use App\Services\ExecutionService;
 use App\Services\FirebaseService;
 use App\Services\N8nService;
+use App\Services\OrganizationContext;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -30,6 +33,12 @@ class AppServiceProvider extends ServiceProvider
 
         // Stateless: orquestra CreditService, Policy e fila a cada chamada.
         $this->app->singleton(ExecutionService::class);
+
+        // `scoped`, nunca singleton: o contexto é da requisição. Um singleton
+        // sobreviveria entre requisições de usuários diferentes sob Octane ou
+        // em um Worker, e a organização ativa de um vazaria para o próximo
+        // (SAD 20.5 e 20.6).
+        $this->app->scoped(OrganizationContext::class);
     }
 
     /**
@@ -39,5 +48,6 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(Project::class, ProjectPolicy::class);
         Gate::policy(Execution::class, ExecutionPolicy::class);
+        Gate::policy(Organization::class, OrganizationPolicy::class);
     }
 }

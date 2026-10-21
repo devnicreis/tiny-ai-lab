@@ -38,7 +38,7 @@ class SyncFirebaseUserActionTest extends TestCase
         $organization = $user->organizations->first();
 
         $this->assertSame('Personal', $organization->name);
-        $this->assertSame(OrganizationRole::Admin->value, $organization->pivot->role);
+        $this->assertSame(OrganizationRole::Owner->value, $organization->pivot->role);
         // Nasce sem plano, como qualquer organização (SAD 12.18).
         $this->assertNull($organization->plan);
     }

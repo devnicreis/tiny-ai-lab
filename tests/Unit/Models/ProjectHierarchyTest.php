@@ -16,7 +16,7 @@ class ProjectHierarchyTest extends TestCase
 
     public function test_a_brand_without_a_parent_is_a_top_level_brand(): void
     {
-        $brand = Project::factory()->for(Organization::factory())->create();
+        $brand = Project::factory()->for(Organization::factory()->withOwner())->create();
 
         $this->assertNull($brand->parent_project_id);
         $this->assertNull($brand->parent);
@@ -26,7 +26,7 @@ class ProjectHierarchyTest extends TestCase
     public function test_sub_brands_resolve_parent_and_children(): void
     {
         // Umbrella e sub-brands vivem sempre na mesma organização (SAD 20.2).
-        $organization = Organization::factory()->create();
+        $organization = Organization::factory()->withOwner()->create();
 
         $umbrella = Project::factory()->for($organization)->create(['brand_name' => 'Acme Group']);
         $coffee = Project::factory()->for($organization)->create(['parent_project_id' => $umbrella->id]);
@@ -45,7 +45,7 @@ class ProjectHierarchyTest extends TestCase
      */
     public function test_hierarchy_never_widens_the_scope_of_a_domain_query(): void
     {
-        $organization = Organization::factory()->create();
+        $organization = Organization::factory()->withOwner()->create();
 
         $umbrella = Project::factory()->for($organization)->create();
         $sub = Project::factory()->for($organization)->create(['parent_project_id' => $umbrella->id]);

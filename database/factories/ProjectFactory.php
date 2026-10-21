@@ -2,10 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Enums\OrganizationRole;
 use App\Models\Organization;
 use App\Models\Project;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -21,7 +19,16 @@ class ProjectFactory extends Factory
     public function definition(): array
     {
         return [
-            'organization_id' => fn () => self::createOrganizationWithAdmin(),
+            // A Marca pertence à Organização (SAD 20.2); a organização default
+            // nasce sem plano (SAD 12.18) e com seu Owner (SAD 20.4). Quem
+            // precisar de plano ou de saldo define no próprio teste.
+            'organization_id' => fn () => Organization::factory()->withOwner()->create()->id,
+            // Provenance de criação (SAD 20.2): registra quem criou a Brand e
+            // nunca autoriza nada. O default é um membro da organização dona.
+            'created_by_user_id' => fn (array $attributes) => Organization::query()
+                ->findOrFail($attributes['organization_id'])
+                ->users()
+                ->value('users.id'),
             'brand_name' => fake()->company(),
             'website' => fake()->url(),
             'description' => fake()->paragraph(),
@@ -37,26 +44,5 @@ class ProjectFactory extends Factory
             ),
             'is_active' => true,
         ];
-    }
-
-    /**
-     * Cria a Organização dona da Brand e um Admin para ela.
-     *
-     * Substitui o antigo `'user_id' => User::factory()`: a Marca pertence à
-     * Organização (SAD 20.2), e o usuário entra pela pivot, não pela Marca. A
-     * organização nasce sem plano (SAD 12.18) — quem precisar de plano ou de
-     * saldo define no próprio teste.
-     */
-    private static function createOrganizationWithAdmin(): int
-    {
-        $organization = Organization::factory()->create();
-        $user = User::factory()->create();
-
-        $organization->users()->attach($user->id, [
-            'role' => OrganizationRole::Admin->value,
-            'joined_at' => now(),
-        ]);
-
-        return $organization->id;
     }
 }

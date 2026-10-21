@@ -13,8 +13,9 @@ use Tests\TestCase;
  * CRUD das Brands sob o modelo de organizações (SAD 20.2 e 20.6).
  *
  * O que estes testes provam é o deslocamento do critério de isolamento: a Brand
- * é vista, editada e excluída por quem participa da **organização dona** — e
- * `projects.user_id` não existe mais como propriedade.
+ * é vista por quem participa da **organização dona**, e criada, editada e
+ * excluída por quem nela é Owner ou Admin (SAD 5.9) — `projects.user_id` não
+ * existe mais como propriedade.
  */
 class ProjectTest extends TestCase
 {
@@ -61,38 +62,83 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * Criar Marcas é capacidade de qualquer membro, Admin ou Member (SAD 20.4).
+     * O Member enxerga as Marcas e roda as ferramentas de IA nelas, mas não as
+     * cria, edita nem exclui — a Brand Memory é de Owner e Admin (SAD 5.9,
+     * ADR-010).
+     *
+     * > 🔁 SUPERSEDED (ADR-010): substitui o teste "Member cria marca".
      */
-    public function test_member_can_create_project_in_the_active_organization(): void
+    public function test_member_cannot_create_or_edit_brand(): void
     {
-        $admin = User::factory()->create(['firebase_uid' => 'uid-admin']);
-        $organization = $this->organizationWith($admin);
-
+        $owner = User::factory()->create(['firebase_uid' => 'uid-owner']);
+        $organization = $this->organizationWith($owner);
         $member = $this->memberOf($organization, OrganizationRole::Member, [
             'firebase_uid' => 'uid-member',
         ]);
+        $brand = $this->brandOf($organization, ['brand_name' => 'Original']);
 
-        $payload = [
-            'brand_name' => 'Tiny AI Lab',
-            'segment' => 'SaaS',
-            'website' => 'https://tinyailab.test',
-            'description' => 'Plataforma de marketing com IA.',
-            'competitors' => ['https://competitor-a.test', 'https://competitor-b.test'],
-            'channels' => ['instagram', 'linkedin'],
-        ];
+        $headers = $this->firebaseHeaders($member);
 
-        $this->postJson('/api/projects', $payload, $this->firebaseHeaders($member))
+        $this->postJson('/api/projects', $this->brandPayload(), $headers)
+            ->assertForbidden();
+
+        $this->patchJson("/api/projects/{$brand->id}", ['brand_name' => 'Changed'], $headers)
+            ->assertForbidden();
+
+        $this->deleteJson("/api/projects/{$brand->id}", [], $headers)
+            ->assertForbidden();
+
+        // Ver continua sendo de qualquer membro.
+        $this->getJson("/api/projects/{$brand->id}", $headers)
+            ->assertOk()
+            ->assertJsonPath('brand_name', 'Original');
+
+        $this->assertDatabaseMissing('projects', ['brand_name' => 'Tiny AI Lab']);
+        $this->assertDatabaseHas('projects', [
+            'id' => $brand->id,
+            'brand_name' => 'Original',
+            'deleted_at' => null,
+        ]);
+    }
+
+    /**
+     * O Admin gerencia o trabalho: cria e edita Marcas e vê os relatórios de
+     * consumo — sem tocar faturamento (SAD 20.4).
+     */
+    public function test_admin_creates_brand_and_views_credit_usage(): void
+    {
+        $owner = User::factory()->create(['firebase_uid' => 'uid-owner']);
+        $organization = $this->organizationWith($owner);
+        $admin = $this->adminOf($organization, ['firebase_uid' => 'uid-admin']);
+        $member = $this->memberOf($organization);
+
+        $headers = $this->firebaseHeaders($admin);
+
+        $projectId = $this->postJson('/api/projects', $this->brandPayload(), $headers)
             ->assertCreated()
             ->assertJsonPath('brand_name', 'Tiny AI Lab')
             ->assertJsonPath('organization_id', $organization->id)
             // Provenance de criação, nunca propriedade (SAD 20.2).
-            ->assertJsonPath('created_by_user_id', $member->id);
+            ->assertJsonPath('created_by_user_id', $admin->id)
+            ->json('id');
+
+        $this->patchJson("/api/projects/{$projectId}", ['brand_name' => 'Renamed'], $headers)
+            ->assertOk()
+            ->assertJsonPath('brand_name', 'Renamed');
 
         $this->assertDatabaseHas('projects', [
-            'brand_name' => 'Tiny AI Lab',
+            'id' => $projectId,
+            'brand_name' => 'Renamed',
             'organization_id' => $organization->id,
-            'created_by_user_id' => $member->id,
+            'created_by_user_id' => $admin->id,
         ]);
+
+        $this->assertTrue($admin->can('viewCreditUsage', $organization));
+        $this->assertTrue($owner->can('viewCreditUsage', $organization));
+        $this->assertFalse($member->can('viewCreditUsage', $organization));
+
+        // Gerenciar Marcas não abre faturamento.
+        $this->assertFalse($admin->can('manageBilling', $organization));
     }
 
     public function test_user_can_update_project_of_own_organization(): void
@@ -157,5 +203,20 @@ class ProjectTest extends TestCase
         $this->getJson('/api/projects', $this->firebaseHeaders($user))
             ->assertStatus(409)
             ->assertJsonPath('error', 'organization_required');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function brandPayload(): array
+    {
+        return [
+            'brand_name' => 'Tiny AI Lab',
+            'segment' => 'SaaS',
+            'website' => 'https://tinyailab.test',
+            'description' => 'Plataforma de marketing com IA.',
+            'competitors' => ['https://competitor-a.test', 'https://competitor-b.test'],
+            'channels' => ['instagram', 'linkedin'],
+        ];
     }
 }

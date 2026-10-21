@@ -57,18 +57,40 @@ class Organization extends Model
     }
 
     /**
-     * O Admin mais antigo da organização (por `joined_at`).
+     * O Owner da organização — o papel persistido, nunca derivado (ADR-010).
      *
-     * Não é um papel: `organization_user.role` só conhece `admin` e `member`
-     * (SAD 20.4). "Owner" aqui é apenas apresentação — quem administra a
-     * organização há mais tempo —, nunca critério de autorização.
+     * Toda organização tem exatamente um Owner (SAD 20.4): o índice único
+     * parcial garante o teto, e as operações de participação garantem o piso.
+     * `firstOrFail()` torna visível, em vez de silencioso, o estado inválido de
+     * uma organização sem Owner.
      */
     public function owner(): User
     {
         return $this->users()
-            ->wherePivot('role', OrganizationRole::Admin->value)
-            ->orderBy('organization_user.joined_at')
+            ->wherePivot('role', OrganizationRole::Owner->value)
             ->firstOrFail();
+    }
+
+    /**
+     * Quantos Owners a organização tem — 1 em todo estado válido.
+     *
+     * Existe para a verificação do piso dentro da transação que altera
+     * participação (SAD 20.4, invariante 1); fora dela a leitura não protege
+     * nada contra operações concorrentes.
+     */
+    public function ownerCount(): int
+    {
+        return $this->users()
+            ->wherePivot('role', OrganizationRole::Owner->value)
+            ->count();
+    }
+
+    public function isOwner(User $user): bool
+    {
+        return $this->users()
+            ->wherePivot('role', OrganizationRole::Owner->value)
+            ->whereKey($user->id)
+            ->exists();
     }
 
     public function hasMember(User $user): bool

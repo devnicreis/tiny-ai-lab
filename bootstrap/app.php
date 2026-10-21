@@ -4,7 +4,10 @@ use App\Exceptions\FeatureNotAvailableException;
 use App\Exceptions\InsufficientCreditsException;
 use App\Exceptions\N8nConnectionException;
 use App\Exceptions\NoActivePlanException;
+use App\Exceptions\OrganizationMembershipException;
 use App\Exceptions\PersonalCreditsConfirmationRequiredException;
+use App\Http\Middleware\AuthenticateWeb;
+use App\Http\Middleware\EnsureActiveOrganization;
 use App\Http\Middleware\VerifyFirebaseToken;
 use App\Http\Middleware\VerifyN8nSecret;
 use Illuminate\Foundation\Application;
@@ -29,6 +32,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'auth.firebase' => VerifyFirebaseToken::class,
+            // Sessão Laravel convencional das rotas web (Sessão 3.1). Nunca
+            // combinada com `auth.firebase` na mesma rota: Bearer é da API,
+            // sessão é da navegação de browser.
+            'auth.web' => AuthenticateWeb::class,
+            // Sempre depois de `auth.firebase` ou `auth.web`: a participação em
+            // uma organização pressupõe identidade (SAD 20.5).
+            'organization' => EnsureActiveOrganization::class,
             'verify.n8n' => VerifyN8nSecret::class,
         ]);
 
@@ -96,6 +106,21 @@ return Application::configure(basePath: dirname(__DIR__))
                 'error' => 'feature_not_available',
                 'cta' => 'Upgrade your plan',
             ], 403);
+        });
+
+        // Violações de participação e papel (SAD 20.4, ADR-010): cada regra tem
+        // código e status próprios — falta de permissão (403), Owner intocável
+        // (409), alvo fora da organização (422) — para que o cliente não receba
+        // um 403 genérico que esconde qual invariante barrou a operação.
+        $exceptions->render(function (OrganizationMembershipException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => $e->errorCode(),
+            ], $e->status());
         });
 
         // 409 não é bloqueio, é pergunta: o custo tocaria a carteira pessoal e

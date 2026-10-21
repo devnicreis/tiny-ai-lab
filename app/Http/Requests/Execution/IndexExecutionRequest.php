@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Execution;
 
 use App\Models\Project;
+use App\Services\OrganizationContext;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -10,9 +11,10 @@ use Illuminate\Validation\Rule;
 /**
  * Contexto de Brand de toda listagem de Executions (SAD 5.12).
  *
- * Nenhuma consulta de domínio pode ser escopada apenas por `user_id`
- * (CLAUDE.md regra 10). A Brand vem de `project_id` quando o cliente a informa
- * e, na ausência dele, da Brand marcada como ativa em `projects.is_active`.
+ * Nenhuma consulta de domínio é escopada por `user_id` (SAD 20.6). A Brand vem
+ * de `project_id` quando o cliente a informa e, na ausência dele, da Brand
+ * marcada como ativa dentro da **organização ativa** — a Brand ativa precisa
+ * pertencer a ela (CLAUDE.md regra 34).
  *
  * O middleware `EnsureActiveProject` previsto na CLAUDE.md §4 ainda não existe;
  * enquanto ele não centraliza esse contexto, a resolução vive aqui — jamais no
@@ -100,13 +102,17 @@ class IndexExecutionRequest extends FormRequest
 
         $projectId = $this->input('project_id');
 
+        $organization = app(OrganizationContext::class)->current();
+
         $this->brand = is_numeric($projectId)
             ? Project::query()->find((int) $projectId)
-            : Project::query()
-                ->forUser($this->user()->id)
-                ->active()
-                ->latest('id')
-                ->first();
+            : ($organization === null
+                ? null
+                : Project::query()
+                    ->forOrganization($organization->id)
+                    ->active()
+                    ->latest('id')
+                    ->first());
 
         return $this->brand;
     }

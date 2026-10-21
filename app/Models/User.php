@@ -42,10 +42,24 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
             'purchased_credits_balance' => 'integer',
             'has_completed_setup' => 'boolean',
             'notify_on_completion' => 'boolean',
         ];
+    }
+
+    /**
+     * Staff da plataforma Arkion (SAD 20.7).
+     *
+     * Eixo global, do painel `/admin/*`. Não concede papel algum em organização
+     * nenhuma e nunca pode ser usado como atalho para `roleIn()` — nem o
+     * contrário. `is_admin` fica deliberadamente fora de `$fillable`: staff da
+     * plataforma jamais se define por entrada de requisição.
+     */
+    public function isPlatformStaff(): bool
+    {
+        return (bool) $this->is_admin;
     }
 
     public function organizations(): BelongsToMany

@@ -175,7 +175,11 @@ class OrganizationContext
     }
 
     /**
-     * O papel do usuário autenticado na organização ativa (SAD 20.4).
+     * O papel do usuário autenticado na organização ativa — `Owner`, `Admin`
+     * ou `Member` (SAD 20.4, ADR-010).
+     *
+     * Devolve o Enum, nunca a string da pivot: quem chama decide pelos métodos
+     * `can*()`, jamais comparando o valor.
      */
     public function currentRole(): ?OrganizationRole
     {

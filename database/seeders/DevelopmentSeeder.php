@@ -28,7 +28,11 @@ class DevelopmentSeeder extends Seeder
             'firebase_uid' => 'dev-user-002',
         ]);
 
-        $organization = $this->createPersonalOrganization($owner, $member);
+        $admin = User::factory()->create([
+            'firebase_uid' => 'dev-user-003',
+        ]);
+
+        $organization = $this->createPersonalOrganization($owner, $admin, $member);
 
         // As duas Brands vivem na mesma Organização: é ela a dona das Marcas
         // e o escopo de tudo que o usuário enxerga (SAD 20.2 e 20.6).
@@ -49,20 +53,23 @@ class DevelopmentSeeder extends Seeder
     }
 
     /**
-     * Organização "Personal" do usuário de desenvolvimento, com ele como
-     * Admin, e um segundo usuário como Member (SAD 20.3 e 20.4).
+     * Organização "Personal" do usuário de desenvolvimento, com ele como Owner,
+     * um Admin e um Member — os três papéis da SAD 20.4 (ADR-010).
      *
-     * Nasce sem plano, como qualquer organização (SAD 12.18 e 20.3): nenhum
-     * plano default é atribuído em seeder.
+     * Exatamente um Owner, como toda organização. Nasce sem plano, como
+     * qualquer organização (SAD 12.18 e 20.3): nenhum plano default é atribuído
+     * em seeder.
      */
-    private function createPersonalOrganization(User $owner, User $member): Organization
+    private function createPersonalOrganization(User $owner, User $admin, User $member): Organization
     {
-        $organization = Organization::factory()->create([
-            'name' => $owner->name.' Personal',
-            'slug' => 'personal-dev-001',
-        ]);
+        $organization = Organization::factory()
+            ->withOwner($owner)
+            ->create([
+                'name' => $owner->name.' Personal',
+                'slug' => 'personal-dev-001',
+            ]);
 
-        $organization->users()->attach($owner->id, [
+        $organization->users()->attach($admin->id, [
             'role' => OrganizationRole::Admin->value,
             'joined_at' => now(),
         ]);

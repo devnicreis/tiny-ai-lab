@@ -245,7 +245,8 @@ class LivewirePipelineTest extends TestCase
     {
         [$user] = $this->userWithBrand();
 
-        $this->get('/briefing', $this->firebaseHeaders($user))
+        // Rota web: sessão (`auth.web`), nunca Bearer (Sessão 3.1).
+        $this->actingAs($user)->get('/briefing')
             ->assertOk()
             ->assertSee('Novo Briefing')
             ->assertSee('Tiny AI Lab');
@@ -260,7 +261,7 @@ class LivewirePipelineTest extends TestCase
             'status' => 'processing',
         ]);
 
-        $response = $this->get('/result/'.$execution->id, $this->firebaseHeaders($user));
+        $response = $this->actingAs($user)->get('/result/'.$execution->id);
 
         $response->assertOk()->assertSee('Execução #'.$execution->id);
 
@@ -274,7 +275,7 @@ class LivewirePipelineTest extends TestCase
         [$user] = $this->userWithBrand();
         $foreign = Execution::factory()->create();
 
-        $this->get('/result/'.$foreign->id, $this->firebaseHeaders($user))
+        $this->actingAs($user)->get('/result/'.$foreign->id)
             ->assertForbidden();
     }
 

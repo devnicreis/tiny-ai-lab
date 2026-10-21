@@ -21,7 +21,12 @@ use Mockery\MockInterface;
 trait InteractsWithOrganizations
 {
     /**
-     * Organização com um membro, no papel informado.
+     * Organização com o usuário no papel informado — e exatamente um Owner.
+     *
+     * Com `Owner` (o default), o próprio usuário é o Owner. Com `Admin` ou
+     * `Member`, um Owner separado é criado: nenhuma organização de teste existe
+     * sem Owner, nem com dois (SAD 20.4). O Owner criado é recuperável por
+     * `ownerOf()`.
      *
      * `plan` nulo é o estado inicial de toda organização (SAD 12.18); quem
      * precisa executar pipeline assina um plano explicitamente no próprio teste.
@@ -30,16 +35,26 @@ trait InteractsWithOrganizations
      */
     protected function organizationWith(
         User $user,
-        OrganizationRole $role = OrganizationRole::Admin,
+        OrganizationRole $role = OrganizationRole::Owner,
         array $attributes = [],
     ): Organization {
-        $organization = Organization::factory()->create($attributes);
+        if ($role === OrganizationRole::Owner) {
+            return Organization::factory()->withOwner($user)->create($attributes);
+        }
+
+        $organization = Organization::factory()->withOwner()->create($attributes);
 
         $this->addMember($organization, $user, $role);
 
         return $organization;
     }
 
+    /**
+     * Grava a participação diretamente, sem as regras do
+     * `OrganizationMembershipService` — é montagem de cenário.
+     *
+     * Um segundo `Owner` é recusado pelo índice único parcial do banco.
+     */
     protected function addMember(
         Organization $organization,
         User $user,
@@ -53,6 +68,8 @@ trait InteractsWithOrganizations
 
     /**
      * Usuário novo já membro da organização.
+     *
+     * @param  array<string, mixed>  $attributes
      */
     protected function memberOf(
         Organization $organization,
@@ -64,6 +81,24 @@ trait InteractsWithOrganizations
         $this->addMember($organization, $user, $role);
 
         return $user;
+    }
+
+    /**
+     * Usuário novo como Admin da organização.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function adminOf(Organization $organization, array $attributes = []): User
+    {
+        return $this->memberOf($organization, OrganizationRole::Admin, $attributes);
+    }
+
+    /**
+     * O Owner da organização, lido do papel persistido.
+     */
+    protected function ownerOf(Organization $organization): User
+    {
+        return $organization->owner();
     }
 
     /**
