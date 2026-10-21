@@ -7804,9 +7804,9 @@ Também considerado e mantido como rejeitado: RBAC granular por organização (p
 
 - `organization_user.role` ganha o valor `owner`; o `enum('role', ['admin', 'member'])` atual precisa ser alterado (no PostgreSQL, o `CHECK` gerado pelo Laravel).
 - Novo índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'`, criado por `DB::statement()`.
-- Backfill: em cada organização existente, um Admin passa a Owner. O backfill de organizações já executado criou exatamente um Admin por organização (a Personal), então o critério de desempate — o Admin mais antigo por `joined_at`, o mesmo de `Organization::owner()` — só importa se existirem organizações com mais de um Admin. O backfill precisa falhar, não escolher em silêncio, se encontrar uma organização sem Admin.
+- Backfill: em cada organização existente, um Admin passa a Owner. O backfill de organizações já executado criou exatamente um Admin por organização (a Personal), então o critério de desempate — o Admin mais antigo por `joined_at`, o mesmo de `Organization::owner()` — só importa se existirem organizações com mais de um Admin. Uma organização sem Admin tem o membro mais antigo promovido pelo mesmo critério, e a migration registra o id da organização no log (`Log::warning`) em vez de falhar; uma organização sem nenhum membro também é registrada. A migration é idempotente: organização que já tem Owner não é tocada.
 
-**Código** (nada implementado; levantamento na Seção 20.8)
+**Código** (implementado; estado na Seção 20.8)
 
 - `OrganizationRole` ganha `Owner` e um conjunto de métodos `can*()` que espelha a matriz da Seção 20.4.
 - `Organization::owner()` deixa de ser helper de exibição e passa a ler o papel persistido; `isLastAdmin()` e `admins()->count()` deixam de ser invariantes e são substituídos pela verificação de Owner.
@@ -8472,52 +8472,60 @@ O termo "admin" aparece nos dois eixos por acidente de vocabulário — e contin
 
 ## 20.8 Estado da Implementação
 
-**Nada desta seção está implementado.**
+Implementado (verificado em Outubro/2026):
 
 | Item | Estado |
 |------|--------|
-| Tabelas `organizations` e `organization_user` | Migration pendente (Seção 4.15) |
-| Coluna `projects.organization_id` | Migration pendente |
-| Criação automática da organização "Personal" no primeiro login | Pendente |
-| Contexto de sessão com duas variáveis | Pendente |
-| Validação "active_project pertence à active_organization" | Pendente |
-| Migração do escopo de `user_id` para `organization_id` | Pendente |
+| Tabelas `organizations` e `organization_user`; coluna `projects.organization_id` NOT NULL | ✅ Implementado |
+| Organização "Personal" criada no primeiro login, com o usuário como Owner (`SyncFirebaseUserAction`) | ✅ Implementado |
+| Contexto de sessão com duas variáveis (`OrganizationContext`, middleware `EnsureActiveOrganization`); a participação é reconferida a cada acesso e o contexto some quando o usuário perde a organização | ✅ Implementado |
+| Escopo das consultas por `organization_id` e `project_id` | ✅ Implementado |
+| Três papéis no Enum `OrganizationRole` (`owner`, `admin`, `member`), com os métodos `can*()` espelhando a matriz da Seção 20.4, inclusive `canLeave()` | ✅ Implementado (ADR-010) |
+| `OrganizationPolicy` e `ProjectPolicy` delegando ao Enum; `leave` é de qualquer membro que não seja o Owner | ✅ Implementado |
+| Índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` | ✅ Implementado (ver Apêndice K, nota sobre SQLite) |
+| Backfill do Owner: promove o Admin mais antigo (`joined_at`, desempate por `id`); sem Admin, o membro mais antigo, registrando a organização no log | ✅ Implementado |
+| `OrganizationMembershipService`: `addMember`, `removeMember`, `changeRole`, `transferOwnership`, `leave`, `invite`, `revokeInvitation` e `acceptInvitation`, todas em transação, com `lockForUpdate` na organização, papéis relidos dentro do lock e verificação de exatamente um Owner antes do commit | ✅ Implementado |
+| Transferência de posse: efetivada imediatamente pelo Owner, o anterior vira Admin | ✅ Implementado; o aceite do destinatário segue **[A DEFINIR]** (Seção 20.4) |
+| Sair da organização (regra abaixo) | ✅ Implementado no Service e na Policy |
+| Convites de membros (`organization_invitations`): endpoint `POST /api/invitations/{token}/accept` | ✅ Implementado; a rota web `GET /invitations/{token}` entra na Sessão 3.2 |
 | ~~Invariante do último Admin~~ | 🔁 **SUPERSEDED (ADR-010)** — substituído pelas invariantes do Owner |
-| Três papéis (`owner`, `admin`, `member`) no Enum e em `organization_user.role` | Pendente (ADR-010) |
-| Índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` | Pendente (Seção 4.15) |
-| Invariantes do Owner verificadas dentro da transação (Seção 20.4) | Pendente |
-| Backfill: um Admin de cada organização existente promovido a Owner | Pendente (ADR-010, Consequências) |
-| Organização Personal criada com o usuário como Owner | Pendente |
-| Fluxo de transferência de posse | Pendente; aceite do destinatário **[A DEFINIR]** (Seção 20.4) |
-| Matriz de três papéis aplicada em `OrganizationPolicy` e `ProjectPolicy` | Pendente |
-| CTA por papel nos três estados de bloqueio | Pendente (Seção 12.12) |
-| Três carteiras de crédito | Pendente (Seção 12.8) |
-| Titular da assinatura Stripe = Organization (`Billable` em `Organization`) | Pendente — **Mês 4** (Seção 12.20) |
-| Seletor de organização no header | Pendente |
-| Divisão entre `EnsureActiveOrganization` e `EnsureActiveProject` | **[A DEFINIR]** |
-| Fluxo de convite de membros (e-mail, aceite, expiração) | **[A DEFINIR]** |
+
+Pendente ou **[A DEFINIR]**:
+
+| Item | Estado |
+|------|--------|
+| Fluxo de convite: provedor SMTP | **[A DEFINIR]**; o link também é devolvido a quem convida |
+| Aceite do destinatário na transferência de posse | **[A DEFINIR]** (Seção 20.4) |
 | Política de exclusão de organização (soft delete, carência, Marcas, Executions, assinatura) | **[A DEFINIR]** (Seção 20.4) |
 | Destino da carteira pessoal quando o usuário deixa todas as orgs | **[A DEFINIR]** |
+| Titular da assinatura Stripe = Organization (`Billable` em `Organization`) | Pendente — **Mês 4** (Seção 12.20) |
+| Edição de nome e slug da organização | **[A DEFINIR]**; não ampliado além do Owner |
+| Endpoints HTTP e telas de membros (convidar, remover, alterar papel, sair, transferir) e seletor de organização no header | Pendente; hoje só o Service e a Policy existem |
+| CTA por papel nos três estados de bloqueio | Pendente (Seção 12.12) |
 
-A migração é estrutural e retrocompatível apenas por backfill: toda Brand existente hoje precisa ser adotada pela organização Personal do seu antigo `user_id` (Seção 12.8).
+Esta tabela cobre o que as sessões de código de setembro e outubro de 2026 tocaram; os demais itens de outras seções (por exemplo, as três carteiras de crédito) têm estado próprio nas respectivas seções.
 
-### Código que ainda segue o modelo de dois papéis (verificado em Outubro/2026)
+### Fluxo de convite
 
-A revisão 2.2 é só documentação. O código atual implementa a revisão 2.1 e precisa ser migrado para a ADR-010 em sessão de código própria. Pontos verificados:
+Definido (antes **[A DEFINIR]**):
 
-| Arquivo | Estado atual | O que muda com a ADR-010 |
-|---------|--------------|--------------------------|
-| `app/Enums/OrganizationRole.php` | Dois casos (`Admin`, `Member`); o docblock afirma que não existe `owner`; `canManageBilling()`, `canManageMembers()` e `canPurchaseForOrganization()` retornam verdadeiro para Admin | Caso `Owner`; métodos `can*()` espelhando a matriz da Seção 20.4 (billing, compra para a org, papéis, transferência e exclusão só Owner; Marcas e relatórios Owner e Admin; convite e remoção com o papel do alvo como argumento) |
-| `app/Models/Organization.php` | `owner()` deriva o "dono" como o Admin mais antigo por `joined_at` — exatamente a alternativa rejeitada pela ADR-010; `admins()` e `isLastAdmin()` sustentam o invariante antigo | `owner()` lê o papel persistido; `isLastAdmin()` e o uso de `admins()->count()` como invariante saem |
-| `app/Policies/OrganizationPolicy.php` | `update`, `delete`, `manageBilling`, `manageMembers`, `purchaseForOrganization`, `removeMember` e `changeRole` exigem Admin; `removeMember` e `changeRole` protegem o último Admin | Billing, compra para a org, papéis e exclusão passam a Owner; convite e remoção respeitam o papel do alvo; o Owner nunca é alvo de remoção ou troca de papel |
-| `app/Policies/ProjectPolicy.php` | `create`, `update`, `delete` e `restore` para qualquer membro | `view` para qualquer membro; demais para Owner e Admin (Seção 5.9) |
-| `app/Actions/Auth/SyncFirebaseUserAction.php` | Cria a Personal com `OrganizationRole::Admin` | Cria com `OrganizationRole::Owner` |
-| `database/migrations/2026_09_14_030100_create_organization_user_table.php` | `enum('role', ['admin', 'member'])`, sem índice parcial | Não é editada (migration já executada); uma **nova** migration amplia o valor e cria o índice |
-| Migrations `2026_09_14_030300` a `030600` | Backfills e `down()` filtram `role = 'admin'` | Não são editadas. O `down()` da nova migration precisa devolver `owner` → `admin` antes de ser desfeita, para que os `down()` anteriores continuem encontrando o Admin |
-| `database/factories/ProjectFactory.php`, `database/seeders/DevelopmentSeeder.php` | Criam membros com `Admin` / `Member` | O criador da organização passa a `Owner` |
-| `tests/Feature/OrganizationTest.php` e demais testes de organização | Cobrem `isLastAdmin()` e Member sem `purchaseForOrganization` / `manageMembers` | Reescritos para as invariantes do Owner e a matriz de três papéis |
+- **Quem convida:** Owner (Admin ou Member) e Admin (somente Member), conforme a matriz da Seção 20.4. Ninguém é convidado como Owner.
+- **Validade:** 7 dias (`OrganizationMembershipService::INVITATION_TTL_DAYS`). Um convite pendente já expirado é revogado ao se convidar o mesmo e-mail de novo.
+- **Um convite pendente por e-mail por organização**, garantido por índice único parcial no banco.
+- **E-mail de quem já é membro é recusado** com `409 already_organization_member`.
+- **Token:** gerado com `random_bytes(32)` e devolvido em claro uma única vez; o banco guarda somente o hash sha256 (`token_hash`).
+- **Aceite:** exige usuário autenticado com e-mail **verificado pelo Firebase** (`email_verified_at`) e igual ao do convite, sem diferenciar maiúsculas. Sem isso, quem se cadastrasse com o e-mail alheio sequestraria o convite. Aceitar sendo já membro é idempotente e não altera o papel existente.
+- **Revogação:** quem pode convidar com aquele papel pode revogar; convite aceito não é revogável (a participação se desfaz por remoção).
 
-> Nota: a frase de abertura desta seção ("Nada desta seção está implementado") e várias linhas "Pendente" da tabela acima são anteriores às sessões de código de setembro de 2026, que implementaram `organizations`, `organization_user`, `projects.organization_id`, a organização Personal no primeiro login e o escopo por organização. A revisão 2.2 atualizou apenas as linhas ligadas a papéis; uma revisão geral do estado de implementação desta seção fica pendente.
+### Sair da organização
+
+- Admin e Member saem por conta própria (`OrganizationMembershipService::leave()`; ability `leave` na `OrganizationPolicy`; `OrganizationRole::canLeave()`).
+- O Owner **não** sai: recebe `OwnerIsImmutableException` (`409 owner_is_immutable`) orientando a transferir a posse antes. Depois da transferência ele é Admin e pode sair. Corolário da invariante 5 (Seção 20.4).
+- Mesmas garantias das demais operações: transação, `lockForUpdate` na organização e papel relido dentro do lock.
+- Se a organização que ele deixou era a ativa na sessão, `OrganizationContext` revalida a participação no acesso seguinte e limpa o contexto.
+- As Marcas ficam com a organização (Seção 20.2). O destino da carteira pessoal de quem deixa a última organização segue **[A DEFINIR]**.
+
+A migração foi estrutural e retrocompatível por backfill: toda Brand existente foi adotada pela organização Personal do seu antigo `user_id` (Seção 12.8).
 
 ---
 
@@ -9494,7 +9502,9 @@ Sua utilização depende de necessidade observada em produção.
 
 Estado atual:
 
-**[A DEFINIR]**
+Em uso: `organization_user_single_owner_unique`, `UNIQUE(organization_id) WHERE role = 'owner'` (SAD 20.4, invariante 1), criado por `DB::statement()` porque o Schema Builder não expressa índice parcial.
+
+> ⚠️ **SQLite (suíte de testes):** um `->change()` futuro em `organization_user` faz o Laravel reconstruir a tabela e recriar os índices **sem a cláusula `WHERE`**; o índice vira um `UNIQUE(organization_id)` simples e passa a recusar qualquer segunda participação na organização. A migration que alterar colunas dessa tabela precisa descartar e recriar o índice parcial depois do `->change()`. O mesmo vale para os demais índices parciais do projeto.
 
 ---
 

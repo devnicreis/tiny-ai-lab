@@ -126,6 +126,28 @@ class OrganizationMembershipService
     }
 
     /**
+     * O próprio usuário sai da organização.
+     *
+     * Admin e Member saem por conta própria. O Owner não: precisa transferir a
+     * posse antes (SAD 20.4, invariante 5). O papel é relido dentro do lock —
+     * o objeto recebido pode estar desatualizado, por exemplo logo após uma
+     * transferência de posse concorrente.
+     *
+     * @throws NotOrganizationMemberException
+     * @throws OwnerIsImmutableException
+     */
+    public function leave(Organization $organization, User $user): void
+    {
+        $this->withLockedOrganization($organization, function (Organization $locked) use ($user): void {
+            if (! $this->targetRole($locked, $user)->canLeave()) {
+                throw OwnerIsImmutableException::cannotLeave($locked);
+            }
+
+            $locked->users()->detach($user->id);
+        });
+    }
+
+    /**
      * Altera o papel de um membro entre `admin` e `member`.
      *
      * Exclusivo do Owner. Nunca para `owner` — isso é transferência de posse —

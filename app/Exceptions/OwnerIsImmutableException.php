@@ -22,6 +22,14 @@ class OwnerIsImmutableException extends OrganizationMembershipException
         );
     }
 
+    public static function cannotLeave(Organization $organization): self
+    {
+        return new self(
+            self::idOf($organization),
+            'The organization owner cannot leave the organization. Transfer ownership to another member first.',
+        );
+    }
+
     public function errorCode(): string
     {
         return 'owner_is_immutable';

@@ -356,6 +356,114 @@ class OrganizationTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
+    // Sair da organização (SAD 20.4, invariante 5)
+    // ---------------------------------------------------------------------
+
+    public function test_member_can_leave_organization(): void
+    {
+        $owner = User::factory()->create();
+        $organization = $this->organizationWith($owner);
+        $member = $this->memberOf($organization, OrganizationRole::Member);
+
+        $this->assertTrue($member->can('leave', $organization));
+
+        $this->membership()->leave($organization, $member);
+
+        $this->assertNull($this->roleOf($organization, $member));
+        $this->assertSame(OrganizationRole::Owner, $this->roleOf($organization, $owner));
+    }
+
+    public function test_admin_can_leave_organization(): void
+    {
+        $owner = User::factory()->create();
+        $organization = $this->organizationWith($owner);
+        $admin = $this->memberOf($organization, OrganizationRole::Admin);
+
+        $this->assertTrue($admin->can('leave', $organization));
+
+        $this->membership()->leave($organization, $admin);
+
+        $this->assertNull($this->roleOf($organization, $admin));
+        $this->assertSame(1, $organization->fresh()->ownerCount());
+    }
+
+    public function test_owner_cannot_leave_without_transferring(): void
+    {
+        $owner = User::factory()->create();
+        $organization = $this->organizationWith($owner);
+        $admin = $this->memberOf($organization, OrganizationRole::Admin);
+
+        $this->assertFalse($owner->can('leave', $organization));
+
+        try {
+            $this->membership()->leave($organization, $owner);
+            $this->fail('The owner left the organization.');
+        } catch (OwnerIsImmutableException $exception) {
+            $this->assertStringContainsString('Transfer ownership', $exception->getMessage());
+        }
+
+        $this->assertSame(OrganizationRole::Owner, $this->roleOf($organization, $owner));
+
+        // Depois de transferir, o ex-Owner é Admin e pode sair.
+        $this->membership()->transferOwnership($organization, $owner, $admin);
+        $this->membership()->leave($organization, $owner);
+
+        $this->assertNull($this->roleOf($organization, $owner));
+        $this->assertSame(OrganizationRole::Owner, $this->roleOf($organization, $admin));
+    }
+
+    public function test_leaving_decides_by_the_role_stored_in_the_database(): void
+    {
+        $owner = User::factory()->create();
+        $organization = $this->organizationWith($owner);
+        $admin = $this->memberOf($organization, OrganizationRole::Admin);
+
+        // O objeto $admin foi carregado antes da transferência; o papel vale
+        // o do banco, relido dentro do lock.
+        $stale = User::query()->findOrFail($admin->id);
+        $this->membership()->transferOwnership($organization, $owner, $admin);
+
+        $this->expectException(OwnerIsImmutableException::class);
+
+        $this->membership()->leave($organization, $stale);
+    }
+
+    public function test_non_member_cannot_leave(): void
+    {
+        $organization = $this->organizationWith(User::factory()->create());
+        $stranger = User::factory()->create();
+
+        $this->assertFalse($stranger->can('leave', $organization));
+
+        $this->expectException(NotOrganizationMemberException::class);
+
+        $this->membership()->leave($organization, $stranger);
+    }
+
+    public function test_leaving_clears_active_organization_for_that_user(): void
+    {
+        $owner = User::factory()->create(['firebase_uid' => 'uid-owner']);
+        $organization = $this->organizationWith($owner);
+        $member = $this->memberOf($organization, OrganizationRole::Member, [
+            'firebase_uid' => 'uid-member',
+        ]);
+
+        $brand = $this->brandOf($organization);
+
+        $this->getJson("/api/projects/{$brand->id}", $this->firebaseHeaders($member))->assertOk();
+
+        $this->membership()->leave($organization, $member);
+
+        // A sessão ainda aponta para a organização; a participação é
+        // reconferida e o contexto desaparece (SAD 20.5).
+        $this->getJson("/api/projects/{$brand->id}", $this->firebaseHeaders($member))
+            ->assertStatus(409)
+            ->assertJsonPath('error', 'organization_required');
+
+        $this->assertFalse($member->fresh()->can('view', $brand));
+    }
+
+    // ---------------------------------------------------------------------
     // Contexto e perda de acesso (SAD 20.5 e 20.7)
     // ---------------------------------------------------------------------
 

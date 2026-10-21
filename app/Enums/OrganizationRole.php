@@ -134,6 +134,17 @@ enum OrganizationRole: string
     }
 
     /**
+     * Sair da organização por conta própria.
+     *
+     * Admin e Member saem; o Owner não — ele só deixa a organização depois de
+     * transferir a posse (SAD 20.4, invariante 5).
+     */
+    public function canLeave(): bool
+    {
+        return $this !== self::Owner;
+    }
+
+    /**
      * Criar, editar e excluir Marcas e sub-brands, incluindo o Brand Core.
      */
     public function canManageBrands(): bool
@@ -169,6 +180,7 @@ enum OrganizationRole: string
             'transfer_ownership' => $this->canTransferOwnership(),
             'assign_roles' => $this->canAssignRoles(),
             'manage_members' => $this->canManageMembers(),
+            'leave_organization' => $this->canLeave(),
             'manage_brands' => $this->canManageBrands(),
             'view_credit_usage' => $this->canViewCreditUsage(),
         ];

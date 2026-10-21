@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\OrganizationRole;
+use App\Exceptions\AlreadyOrganizationMemberException;
 use App\Exceptions\InsufficientOrganizationRoleException;
 use App\Exceptions\OwnerRoleRequiresTransferException;
 use App\Exceptions\PendingInvitationExistsException;
@@ -227,6 +228,23 @@ class OrganizationInvitationTest extends TestCase
         $this->membership()->invite($organization, $owner, 'invitee@example.com', OrganizationRole::Member);
 
         $this->assertSame(1, $organization->invitations()->pending()->count());
+    }
+
+    public function test_cannot_invite_email_of_existing_member(): void
+    {
+        $owner = User::factory()->create();
+        $organization = $this->organizationWith($owner);
+        $member = $this->memberOf($organization, OrganizationRole::Member, ['email' => 'Member@Example.com']);
+
+        try {
+            $this->membership()->invite($organization, $owner, 'member@example.com', OrganizationRole::Member);
+            $this->fail('An existing member was invited.');
+        } catch (AlreadyOrganizationMemberException $exception) {
+            $this->assertSame(409, $exception->status());
+        }
+
+        $this->assertSame(0, $organization->invitations()->count());
+        $this->assertSame(OrganizationRole::Member, $member->roleIn($organization));
     }
 
     public function test_expired_pending_invitation_does_not_block_a_new_one(): void
