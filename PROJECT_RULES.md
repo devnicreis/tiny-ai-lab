@@ -126,17 +126,28 @@ Antes de aceitar qualquer código gerado pelo Codex, verificar obrigatoriamente:
 - [ ] Organização sem plano retorna 402 (`NoActivePlanException`) **antes** de qualquer verificação de gating.
 - [ ] Pipeline fora do plano retorna 403 (`FeatureNotAvailableException`); saldo insuficiente retorna 402 (`InsufficientCreditsException`).
 - [ ] Os três bloqueios têm mensagens e CTAs distintos, nunca uma mensagem genérica.
+- [ ] A compra de créditos para a organização é exclusiva do Owner; Admin e Member compram apenas a carteira pessoal, e a capacidade é decidida no backend.
+- [ ] Nenhum código novo usa os métodos do `Billable` do Cashier em `User` (o customer Stripe migra para `Organization` no Mês 4 — SAD §12.20).
 
 ## Organizações
 
 - [ ] `projects.organization_id` é NOT NULL; nenhuma Marca foi criada fora de uma Organização.
 - [ ] Nenhuma relação de propriedade direta entre `User` e `Project` foi criada ou usada.
 - [ ] `users.is_admin` (staff da plataforma) e `organization_user.role` (papel na org) não foram confundidos.
-- [ ] O invariante "a organização nunca fica sem Admin" é verificado dentro da transação, sob lock.
-- [ ] O último Admin não pode ser removido, rebaixado, nem sair da organização.
-- [ ] Ações exclusivas de Admin (faturamento, créditos da org, membros, exclusão da org) estão protegidas por Policy.
-- [ ] O usuário novo recebe automaticamente a organização "Personal" com ele como Admin.
+- [ ] `organization_user.role` aceita apenas `owner`, `admin` e `member` (ADR-010).
+- [ ] Nenhuma comparação de string de papel foi usada em autorização; toda decisão passa por `OrganizationRole` e seus métodos `can*()`.
+- [ ] O índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` existe e não foi contornado.
+- [ ] O invariante "a organização tem exatamente um Owner" é verificado dentro da transação, sob lock, em toda operação que altere participação ou papel.
+- [ ] O Owner não pode ser removido, rebaixado, nem sair da organização sem transferir a posse antes.
+- [ ] A transferência de posse exige destino já membro da org, roda em uma única transação e rebaixa o Owner anterior a Admin antes de promover o destino.
+- [ ] Ações exclusivas do Owner (faturamento, compra de créditos para a org, atribuição de papéis, transferência de posse, exclusão da org) estão protegidas por Policy.
+- [ ] Criar, editar e excluir Marcas e sub-brands (incluindo Brand Core) exige Owner ou Admin; Member só visualiza e usa as ferramentas de IA.
+- [ ] O Admin convida e remove apenas Members; o Member não convida nem remove ninguém.
+- [ ] CTAs de assinatura, upgrade e compra para a org só aparecem para o Owner; Admin e Member veem "ask your organization owner" (SAD §12.12).
+- [ ] O usuário novo recebe automaticamente a organização "Personal" com ele como **Owner**.
 - [ ] O seletor de organização fica oculto quando o usuário pertence a apenas uma organização.
+
+> 🔁 **SUPERSEDED (ADR-010):** os itens anteriores desta lista — "o invariante 'a organização nunca fica sem Admin' é verificado dentro da transação", "o último Admin não pode ser removido, rebaixado, nem sair da organização", "ações exclusivas de Admin (faturamento, créditos da org, membros, exclusão da org) estão protegidas por Policy" e "o usuário novo recebe a Personal com ele como Admin" — foram substituídos pelos itens acima.
 
 ## Hierarquia de Marcas
 
@@ -419,7 +430,7 @@ $personal = $request->input('breakdown.personal_credits');   // PROIBIDO
 $user->purchased_credits_balance -= $personal;
 ```
 
-Motivo: a confirmação autoriza **usar a carteira pessoal nesta ação**, não um valor. Outro membro da organização pode ter gasto — ou um Admin pode ter comprado — créditos entre o aviso e a confirmação. O valor real é recalculado dentro da transação de débito. Ver `SAD.md`, Seção 12.19.
+Motivo: a confirmação autoriza **usar a carteira pessoal nesta ação**, não um valor. Outro membro da organização pode ter gasto — ou o Owner pode ter comprado — créditos entre o aviso e a confirmação. O valor real é recalculado dentro da transação de débito. Ver `SAD.md`, Seção 12.19.
 
 ---
 
@@ -465,16 +476,21 @@ Motivo: são dois eixos independentes. `users.is_admin` é staff da plataforma A
 
 ### 28.
 
-Deixar uma organização sem nenhum Admin.
+Deixar uma organização sem Owner, com mais de um Owner, ou remover/rebaixar o Owner fora da transferência de posse.
 
 ```php
-$org->members()->detach($lastAdmin->id);                        // PROIBIDO
-$org->members()->updateExistingPivot($lastAdmin->id, [
-    'role' => 'member',
-]);                                                             // PROIBIDO
+$org->members()->detach($owner->id);                            // PROIBIDO
+$org->members()->updateExistingPivot($owner->id, [
+    'role' => OrganizationRole::Admin->value,
+]);                                                             // PROIBIDO fora da transferência
+$org->members()->updateExistingPivot($target->id, [
+    'role' => OrganizationRole::Owner->value,
+]);                                                             // PROIBIDO sem rebaixar o Owner atual na mesma transação
 ```
 
-Motivo: uma organização sem Admin é estado irrecuperável — ninguém mais pode assinar plano, comprar créditos para a org, gerenciar membros ou excluí-la. O último Admin não pode ser removido nem rebaixado, e a verificação ocorre dentro da transação, sob lock. Ver `SAD.md`, Seção 20.4.
+Motivo: uma organização sem Owner é estado irrecuperável — ninguém mais pode assinar plano, comprar créditos para a org, atribuir papéis, transferir a posse ou excluí-la. Exatamente um Owner é garantido pelo índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` e pela verificação dentro da transação, sob lock. O Owner só deixa de sê-lo por transferência de posse a um membro existente, que o rebaixa a Admin. Ver `SAD.md`, Seção 20.4, e ADR-010.
+
+> 🔁 **SUPERSEDED (ADR-010):** este antipattern era "Deixar uma organização sem nenhum Admin" — proibia `detach` e rebaixamento do **último Admin**. Com três papéis, o invariante é sobre o Owner; uma organização sem nenhum Admin é válida.
 
 ---
 
@@ -503,6 +519,43 @@ Motivo: o contexto de sessão tem duas variáveis (`active_organization_id` e `a
 
 ---
 
+### 31.
+
+Comparar strings de papel, ou decidir autorização pela identidade do papel em vez da capacidade.
+
+```php
+if ($pivot->role === 'admin') { ... }                                  // PROIBIDO
+if ($user->roleIn($org) === OrganizationRole::Admin) { $org->delete(); } // PROIBIDO
+```
+
+```php
+// Correto
+if ($user->roleIn($org)?->canDeleteOrganization()) { ... }
+```
+
+Motivo: papel é `organization_user.role` em {`owner`, `admin`, `member`}, representado pelo enum `OrganizationRole`. Comparar strings espalha a matriz de permissões pelo código e quebra em silêncio quando ela muda — foi exatamente o que a ADR-010 mudou. A matriz vive nos métodos `can*()` do enum e é consumida pelas Policies. Os nomes exatos dos métodos são definidos na sessão de código; a regra é que eles existam e sejam a única fonte. Comparar a identidade do enum (`=== OrganizationRole::Owner`) só é aceitável para aplicar as invariantes do Owner (ele é o alvo de uma remoção?), nunca para decidir o que um papel pode fazer. Ver `SAD.md`, Seção 20.4.
+
+---
+
+### 32.
+
+Conceder a Admin ou Member uma capacidade exclusiva do Owner, ou a Member a gestão de Marcas.
+
+```php
+// PROIBIDO — Admin comprando créditos para a organização
+$organization->increment('purchased_credits_balance', $package->credits); // autorizado só por "é Admin"
+
+// PROIBIDO — Member editando a Brand
+public function update(User $user, Project $project): bool
+{
+    return $user->belongsToOrganization($project->organization);
+}
+```
+
+Motivo: faturamento, compra de créditos para a org, atribuição de papéis, transferência de posse e exclusão da organização são exclusivos do Owner; criar, editar e excluir Marcas é de Owner e Admin. Os modelos anteriores ("qualquer Admin gerencia faturamento" e "Members criam e editam marcas") estão superados pela ADR-010. Ver `SAD.md`, Seções 20.4 e 5.9.
+
+---
+
 # 4. Decisões Arquiteturais Fixadas
 
 | Decisão | Alternativa Rejeitada | Nunca Reverter Sem ADR |
@@ -526,7 +579,8 @@ Motivo: o contexto de sessão tem duas variáveis (`active_organization_id` e `a
 | Custos de créditos em `plan_limits` | Valores hardcoded | Sim |
 | Organização como entidade de faturamento | Usuário como entidade de faturamento | Sim |
 | Marca sempre pertencente a uma Organização | Marca pertencente ao usuário | Sim |
-| Dois papéis por organização: Admin e Member | RBAC granular por organização | Sim |
+| Três papéis por organização: Owner, Admin e Member, com exatamente um Owner (ADR-010) | Dois papéis com `Organization::owner()` como helper de exibição / RBAC granular por organização | Sim |
+| Customer Stripe (`Billable`) é a Organization — migração no Mês 4 | `Billable` em `User` | Sim |
 | Escopo obrigatório por `organization_id` + `project_id` | Escopo por `user_id` / dados globais | Sim |
 | Modo Light como padrão, Dark como variante `dark:` | Dark First | Sim |
 | Newsreader (títulos) + Inter (corpo e UI) | Tipografia única | Sim |
@@ -541,6 +595,8 @@ Motivo: o contexto de sessão tem duas variáveis (`active_organization_id` e `a
 | `users.is_admin` boolean em `users` (staff da plataforma) | Tabela de papéis / RBAC | Sim |
 | Controllers administrativos isolados em `Admin` | Reuso de Controllers Web ou Api | Sim |
 | Auditoria obrigatória em `admin_action_logs` | Ação administrativa sem rastro | Sim |
+
+> 🔁 **SUPERSEDED (ADR-010):** esta tabela registrava "Dois papéis por organização: Admin e Member" (alternativa rejeitada: RBAC granular por organização). A decisão foi revista pela ADR-010 e substituída pela linha de três papéis acima.
 
 ---
 

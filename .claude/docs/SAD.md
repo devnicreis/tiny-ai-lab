@@ -1,11 +1,21 @@
 # Software Architecture Document (SAD)
 
 **Projeto:** Arkion  
-**Versão:** 2.1 (Living Document)  
+**Versão:** 2.2 (Living Document)  
 **Status:** Production Ready Architecture Specification  
 **Stack:** Laravel 11 + Livewire 3 + PostgreSQL + n8n + Redis + Reverb  
-**Última atualização:** Agosto/2026
+**Última atualização:** Outubro/2026
 
+> **Revisão 2.2 — Três papéis de organização (ADR-010).** Decisão de Nicolas e Erich: `organization_user.role`
+> passa a ter **três** valores — `owner`, `admin` e `member`. Há **exatamente um Owner** por organização, único
+> responsável por faturamento, compra de créditos para a org, atribuição de papéis, transferência de posse e
+> exclusão da org; gerenciar Marcas passa a ser de Owner e Admin, não mais de Member. Foram reescritas a
+> **Seção 20.4** (matriz de permissões e invariantes do Owner), a **Seção 12** nos pontos de compra de créditos,
+> assinatura e CTAs por papel, e a **Seção 4.15** (`role` e índice único parcial). Nova **ADR-010** (Seção 17) e
+> nova **Seção 12.20** (pendência do Mês 4: Organization como customer Stripe). As decisões "dois papéis apenas",
+> "a organização nunca fica sem Admin" e "Members criam e editam marcas" estão marcadas como **SUPERSEDED** e
+> preservadas como histórico. Nada desta revisão está implementado em código (ver Seção 20.8).
+>
 > **Revisão 2.1 — Organizações.** O Arkion adota um modelo de **Organizações** inspirado no Make.com:
 > a Organização é a entidade de faturamento, as Marcas pertencem à Organização e nunca ao usuário, e o
 > crédito passa a viver em **três carteiras** (plano da org → comprado pela org → carteira pessoal do usuário,
@@ -110,7 +120,7 @@ Uma Organização possui:
 
 - o plano assinado (ou nenhum — `plan = null`);
 - os créditos do plano e os créditos comprados para a operação;
-- os membros, cada um com um papel (`admin` ou `member`);
+- os membros, cada um com um papel (`owner`, `admin` ou `member`), com **exatamente um Owner** (Seção 20.4);
 - as Marcas.
 
 Toda operação do sistema acontece dentro de exatamente uma Organização ativa. Ver **Seção 20**.
@@ -1436,6 +1446,8 @@ subscription_items
 
 Os documentos não especificam alterações estruturais.
 
+> **Pendência do Mês 4:** hoje `subscriptions.user_id` e as colunas `stripe_*` estão em `users`, porque o `Billable` está em `User`. Com a Organização como entidade de faturamento e o Owner como único responsável por ele (ADR-010), o customer Stripe deve ser a `Organization`. O levantamento e o escopo da migração estão na Seção 12.20.
+
 ---
 
 # 4.9 Notifications
@@ -1615,7 +1627,7 @@ Pivot que registra a participação de um usuário em uma organização **e o pa
 | id | bigint | PK | Identificador interno |
 | organization_id | bigint | FK organizations, NOT NULL, cascade | Organização |
 | user_id | bigint | FK users, NOT NULL, cascade | Usuário membro |
-| role | string | NOT NULL | `admin` ou `member` — nada além disso (Seção 20.4) |
+| role | string | NOT NULL | `owner`, `admin` ou `member` — nada além disso (Seção 20.4, ADR-010) |
 | created_at | timestamp | NOT NULL | Auditoria |
 | updated_at | timestamp | NOT NULL | Auditoria |
 
@@ -1626,15 +1638,21 @@ PRIMARY KEY (id)
 
 UNIQUE(organization_id, user_id)
 
+UNIQUE(organization_id) WHERE role = 'owner'     ← índice único parcial
+
 INDEX(user_id)
 ```
 
 `UNIQUE(organization_id, user_id)` garante um único papel por usuário em cada organização.
 
+O índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` garante que **nenhuma organização tenha mais de um Owner**. O Schema Builder do Laravel não expressa índices parciais; a migration o cria por `DB::statement()`. O índice garante o teto ("no máximo um"); o piso ("pelo menos um") é invariante de domínio, verificado dentro da transação (Seção 20.4).
+
 ### Regras de Integridade
 
-- `role` aceita exclusivamente `admin` e `member`. A restrição vale no domínio (Enum + validação); a decisão entre `CHECK` constraint e Enum PostgreSQL nativo é **[A DEFINIR]**.
-- **Uma organização nunca pode ficar sem nenhum Admin** (Seção 20.4). O último Admin não pode ser removido nem rebaixado. O invariante é de domínio e deve ser verificado dentro da transação, sob lock — a constraint de banco não o expressa.
+- `role` aceita exclusivamente `owner`, `admin` e `member`. A restrição vale no domínio (Enum `App\Enums\OrganizationRole` + validação); a decisão entre `CHECK` constraint e Enum PostgreSQL nativo é **[A DEFINIR]**.
+- **Toda organização tem exatamente um Owner** (Seção 20.4). O teto é garantido pelo índice único parcial; o piso — a organização nunca fica sem Owner — é verificado dentro da transação, sob lock. O Owner só deixa de sê-lo por transferência de posse.
+
+> 🔁 **SUPERSEDED (ADR-010) — Dois valores de `role` e "nunca sem Admin".** A revisão 2.1 desta seção limitava `role` a `admin` e `member` ("nada além disso") e registrava como invariante que **uma organização nunca pode ficar sem nenhum Admin** — o último Admin não podia ser removido nem rebaixado, e o banco não expressava a regra. Ambos estão superados pela ADR-010: `role` tem três valores, e o invariante passa a ser sobre o **Owner**, com parte dele (o teto de um Owner) garantida por índice. Uma organização pode legitimamente não ter nenhum Admin — o Owner sozinho basta.
 - Remover a última participação de um usuário **não** o deixa sem organização em nenhum fluxo previsto; o destino da carteira pessoal nesse cenário é **[A DEFINIR]** (Seção 20.8).
 
 ### Política de Retenção
@@ -2223,7 +2241,18 @@ delete
 restore
 ```
 
-A autorização verifica se o usuário é **membro da organização dona da Brand**, e não se `projects.user_id` é dele. Ações restritas a Admin da organização (Seção 20.4) verificam também `organization_user.role`.
+A autorização verifica se o usuário é **membro da organização dona da Brand**, e não se `projects.user_id` é dele.
+
+O papel também é consultado (Seção 20.4, ADR-010):
+
+| Permissão | Quem |
+|-----------|------|
+| `view` | Qualquer membro — Owner, Admin ou Member |
+| `create`, `update`, `delete`, `restore` | Somente Owner e Admin |
+
+Editar o Brand Core e os demais dados da Marca é `update`. Um Member enxerga as Marcas e roda as ferramentas de IA nelas, mas não as cria, edita nem exclui. A verificação usa os métodos `can*()` do Enum `OrganizationRole`, nunca comparação de strings de papel.
+
+> 🔁 **SUPERSEDED (ADR-010):** a revisão 2.1 autorizava `update` e `delete` de Brand para qualquer membro ("Gerenciar Marcas é capacidade de Admin e Member") e restringia por papel apenas as ações de faturamento e participação. Member deixou de gerenciar Marcas.
 
 ---
 
@@ -3060,6 +3089,8 @@ HTTP 402
 
 Sem criação da Execution.
 
+CTA "Subscribe to a plan" somente para o Owner; Admin e Member veem "Ask your organization owner to subscribe to a plan." (Seção 12.12, CTA por papel).
+
 ---
 
 ## Sem Créditos
@@ -3075,6 +3106,8 @@ Interface deve apresentar CTA:
 ```
 Buy AI Credits
 ```
+
+A carteira de destino oferecida depende do papel: Owner escolhe entre organização e pessoal; Admin e Member, apenas pessoal (Seção 12.12, CTA por papel).
 
 ---
 
@@ -4968,6 +5001,8 @@ CTA permanente na Sidebar.
 
 Responsável por iniciar o fluxo de compra de créditos avulsos, que credita `purchased_credits_balance` (Seção 12.9).
 
+O CTA é visível a todos os papéis, porque todo membro pode comprar créditos pessoais. A carteira de destino "organização" só é oferecida ao Owner; Admin e Member compram apenas a carteira pessoal (Seções 12.13 e 20.4, ADR-010).
+
 ---
 
 # 10.13 Componentes Blade + Livewire
@@ -5797,12 +5832,18 @@ O saldo do Arkion é distribuído em **três carteiras separadas**, nunca consol
 | # | Carteira | Dono | Origem | Renovação | Expira? |
 |:-:|----------|------|--------|-----------|---------|
 | 1 | `organizations.plan_credits_balance` | Organização | Assinatura mensal do plano da org | Reposto no início de cada ciclo de cobrança | **Sim** — não é cumulativo |
-| 2 | `organizations.purchased_credits_balance` | Organização | Pacote comprado por um **Admin** para a org | Somado ao saldo existente na compra | **Não** — nunca expira |
+| 2 | `organizations.purchased_credits_balance` | Organização | Pacote comprado pelo **Owner** para a org | Somado ao saldo existente na compra | **Não** — nunca expira |
 | 3 | `users.purchased_credits_balance` | Usuário | Pacote comprado pelo próprio usuário | Somado ao saldo existente na compra | **Não** — nunca expira |
 
 As duas primeiras carteiras são **da organização** e são compartilhadas por todos os membros e por todas as Marcas dela — de topo ou sub-brands (Seção 19).
 
 A terceira carteira é **pessoal e portátil**: acompanha o usuário para qualquer organização de que ele participe, e não é visível nem consumível por outros membros.
+
+**Visibilidade dos saldos por papel (Seção 20.4):** todo membro — Owner, Admin ou Member — vê os saldos das duas carteiras da organização e o da **sua própria** carteira pessoal. Ver o **consumo total** da organização (relatórios de uso) é exclusivo de Owner e Admin. Nenhum papel, nem o Owner, enxerga a carteira pessoal de outro membro.
+
+**Quem credita cada carteira comprada:** somente o **Owner** compra créditos para a organização (carteira 2). Qualquer membro compra créditos para a própria carteira pessoal (carteira 3). Ver Seção 12.9.
+
+> 🔁 **SUPERSEDED (ADR-010) — Admin compra para a organização.** A revisão 2.1 desta tabela atribuía a carteira 2 a "pacote comprado por um **Admin** para a org". Com três papéis, a compra para a organização é exclusiva do Owner; Admin e Member compram apenas a carteira pessoal.
 
 ## Regra de não-acumulação
 
@@ -5825,7 +5866,7 @@ Crédito de plano não consumido dentro do mês é perdido. Este comportamento �
 As duas carteiras de crédito comprado são sempre **incrementadas** e jamais zeradas por rotina de ciclo:
 
 ```text
-Compra confirmada por Admin para a org:
+Compra confirmada pelo Owner para a org:
 
 organizations.purchased_credits_balance += créditos do pacote          ← incremento
 
@@ -6136,7 +6177,7 @@ A migração para o modelo de três carteiras é trabalho de código, não desta
 
 1. migrations criando `organizations` e `organization_user` (Seção 4.15);
 2. migration adicionando `organizations.plan_credits_balance`, `organizations.purchased_credits_balance` e `users.purchased_credits_balance`;
-3. backfill: uma organização "Personal" por usuário existente, com ele como Admin, recebendo o `credits_balance` atual em `organizations.plan_credits_balance`;
+3. backfill: uma organização "Personal" por usuário existente, com ele como Admin, recebendo o `credits_balance` atual em `organizations.plan_credits_balance`; *(🔁 SUPERSEDED pela ADR-010: o usuário da organização Personal é **Owner**, não Admin. O backfill já executado gravou `admin`; a promoção a `owner` é trabalho de código registrado na Seção 20.8.)*
 4. backfill de `projects.organization_id` apontando para a organização Personal do antigo `projects.user_id`;
 5. reescrita de `CreditService::deduct()` para aplicar a ordem da Seção 12.3 e o fluxo de confirmação da Seção 12.19 dentro do lock pessimista;
 6. remoção de `users.credits_balance` em migration posterior, após o backfill validado.
@@ -6173,10 +6214,12 @@ Permitir que a operação crie, renomeie, reprecifique e desative pacotes de cr�
 
 - Créditos adquiridos por um pacote **nunca** creditam nenhum `plan_credits_balance`.
 - A carteira de destino depende de **quem comprou e em que capacidade**:
-  - compra feita por um **Admin** para a organização → `organizations.purchased_credits_balance`;
+  - compra feita pelo **Owner** para a organização → `organizations.purchased_credits_balance`;
   - compra feita por qualquer usuário para si → `users.purchased_credits_balance`.
-- Um **Member** só pode comprar créditos pessoais. A compra de créditos para a organização é exclusiva de Admin (Seção 20.4).
-- A capacidade da compra é decidida no backend a partir do papel do usuário na organização ativa, nunca por um campo enviado pelo cliente.
+- **Admin e Member só podem comprar créditos pessoais.** A compra de créditos para a organização é exclusiva do Owner (Seção 20.4, ADR-010).
+- A capacidade da compra é decidida no backend a partir do papel do usuário na organização ativa (`OrganizationRole::canPurchaseForOrganization()`), nunca por um campo enviado pelo cliente.
+
+> 🔁 **SUPERSEDED (ADR-010):** a revisão 2.1 desta lista atribuía a compra para a organização a "um **Admin**" e restringia apenas o Member a créditos pessoais. O Admin perdeu essa capacidade.
 - Um pacote desativado (`is_active = false`) desaparece do catálogo mas nunca é excluído — compras históricas precisam manter a referência.
 - Alterar o preço de um pacote nunca reprecifica compras passadas.
 - Toda alteração administrativa em `credit_packages` é registrada em `admin_action_logs` (Seção 14).
@@ -6264,6 +6307,8 @@ Pipeline solicitado
 
 Nenhuma ação que consuma créditos pode ignorar esta sequência, e a ordem das etapas 1 → 2 → 3 é obrigatória.
 
+Os CTAs indicados acima são os do Owner. O que Admin e Member veem em cada bloqueio está na Seção 12.12 (CTA por papel).
+
 ---
 
 # 12.11 Débito de Créditos
@@ -6291,6 +6336,24 @@ Uma execução pode ser recusada por três motivos **distintos**, com exceção,
 | Saldo insuficiente nas carteiras autorizadas | `InsufficientCreditsException` | **402** | "Not enough credits to run this action." | **Buy AI Credits** |
 
 Os dois primeiros estados não são resolvidos comprando créditos, e o terceiro não é resolvido assinando ou fazendo upgrade. Uma mensagem genérica manda o usuário para a tela errada.
+
+## CTA por papel
+
+A coluna CTA acima é o que vê **quem tem permissão** para resolver o bloqueio. Com três papéis (ADR-010), assinar, fazer upgrade e comprar créditos para a organização são exclusivos do Owner (Seção 20.4) — mostrar esses CTAs a Admin ou Member os levaria a um checkout que o backend recusaria com 403.
+
+| Situação | Owner | Admin e Member |
+|----------|-------|----------------|
+| Sem plano (`NoActivePlanException`, 402) | **Subscribe to a plan** | Sem CTA de checkout. Mensagem: "Ask your organization owner to subscribe to a plan." |
+| Pipeline fora do plano (`FeatureNotAvailableException`, 403) | **Upgrade your plan** | Sem CTA de checkout. Mensagem: "Ask your organization owner to upgrade the plan." |
+| Saldo insuficiente (`InsufficientCreditsException`, 402) | **Buy AI Credits** — destino organização ou pessoal | **Buy AI Credits** — somente destino pessoal — e a mensagem "Or ask your organization owner to add organization credits." |
+
+Regras:
+
+- **O bloqueio continua distinto por situação.** A troca do CTA por papel não colapsa os três estados: a mensagem principal de cada linha da tabela anterior permanece; muda apenas a ação oferecida.
+- **Sem plano, nenhum crédito resolve** — nem o pessoal. Por isso Admin e Member não recebem "Buy AI Credits" no estado sem plano: comprar créditos pessoais não destravaria a execução (Seção 12.18).
+- **Saldo insuficiente pode ser resolvido por qualquer membro** com a carteira pessoal, já que comprar créditos pessoais é capacidade de todos os papéis. O CTA aparece para todos; o que muda é a carteira de destino disponível no checkout (Seção 12.13).
+- **O papel exibido vem do backend.** A interface recebe a capacidade (`canManageBilling`, `canPurchaseForOrganization`) já resolvida pelo Laravel, nunca deduz o papel no cliente. Esconder o CTA é conveniência de UX; a recusa real é a Policy (Seção 20.4).
+- Todo texto é em inglês (Seção 10.1.1). O texto exato das mensagens para Admin e Member acima é a redação de referência; ajustes de copy não alteram a regra.
 
 Existe ainda um quarto retorno, que **não é um bloqueio** e sim uma pergunta: **HTTP 409** quando o custo tocaria a carteira pessoal sem confirmação (Seção 12.19).
 
@@ -6328,8 +6391,8 @@ Catálogo de credit_packages ativos
 ↓
 
 Escolha da carteira de destino
-  ├── Organização  (somente Admin)
-  └── Pessoal      (qualquer membro)
+  ├── Organização  (somente Owner)
+  └── Pessoal      (qualquer membro — Owner, Admin ou Member)
 
 ↓
 
@@ -6354,7 +6417,9 @@ organizations.purchased_credits_balance += credit_packages.credits   (compra da 
 users.purchased_credits_balance         += credit_packages.credits   (compra pessoal)
 ```
 
-O papel exibido na etapa de escolha vem do backend. Um Member que forjar a opção "Organização" recebe 403: a autorização é reavaliada no processamento do webhook e na criação do checkout, nunca apenas na UI.
+O papel exibido na etapa de escolha vem do backend. Para Admin e Member a opção "Organização" não é exibida — a etapa de escolha mostra apenas a carteira pessoal. Um Admin ou Member que forjar a opção "Organização" recebe 403: a autorização é reavaliada no processamento do webhook e na criação do checkout, nunca apenas na UI.
+
+> 🔁 **SUPERSEDED (ADR-010):** a revisão 2.1 deste fluxo marcava a carteira da organização como "(somente Admin)" e descrevia apenas o Member forjando a opção. A compra para a organização é exclusiva do Owner.
 
 ## Infraestrutura de Pagamento
 
@@ -6367,7 +6432,7 @@ O papel exibido na etapa de escolha vem do backend. Um Member que forjar a opç�
 
 **Decisão adiada para a sessão de Cashier do Mês 4.** Nenhuma implementação de compra de créditos avulsos pode começar antes desta decisão, pois ela determina o formato de `credit_packages.external_price_id`, o contrato do webhook de confirmação e a modelagem do registro da compra.
 
-A assinatura mensal dos planos permanece no Stripe + Laravel Cashier, decisão já fixada e não reaberta por esta pendência. **O titular da assinatura passa a ser a Organização, não o usuário** — o `Billable` do Cashier muda de Model, o que é mudança estrutural e deve ser tratada na mesma sessão.
+A assinatura mensal dos planos permanece no Stripe + Laravel Cashier, decisão já fixada e não reaberta por esta pendência. **O titular da assinatura passa a ser a Organização, não o usuário** — o `Billable` do Cashier muda de Model, o que é mudança estrutural e deve ser tratada na mesma sessão. O levantamento do estado atual e do que precisa migrar está na Seção 12.20.
 
 ---
 
@@ -6475,6 +6540,8 @@ A consulta escopa hoje simultaneamente por `user_id` e `project_id`. Quando as o
 - preencher Brand Core, Visual Identity, produtos, personagens e demais assets;
 - navegar por todo o histórico já produzido.
 
+Esta lista descreve o que a **organização** pode fazer sem plano, não o que **cada papel** pode fazer. Quem executa cada ação continua decidido pela matriz da Seção 20.4: convidar e remover membros é de Owner e Admin (com os limites da matriz), e criar, editar e excluir Marcas é de Owner e Admin — um Member de uma organização sem plano navega pelas Marcas e pelo histórico, mas não as altera.
+
 ## O que uma organização sem plano NÃO PODE fazer
 
 - **executar qualquer pipeline.** Nenhum. Sem exceção por tipo, por saldo ou por carteira pessoal.
@@ -6501,7 +6568,11 @@ Uma organização sem plano não tem ciclo de cobrança: `plan_credits_balance` 
 
 ## Assinatura
 
-Assinar um plano é ação exclusiva de **Admin** da organização (Seção 20.4). Um Member que encontra o bloqueio 402 vê o CTA "Subscribe to a plan", mas o fluxo de checkout só é aberto para Admin; para Member, a interface indica que um Admin da organização precisa assinar.
+Assinar um plano é ação exclusiva do **Owner** da organização (Seção 20.4, ADR-010). Admin e Member que encontram o bloqueio 402 **não** veem o CTA "Subscribe to a plan" nem qualquer caminho até o checkout; veem a mensagem "Ask your organization owner to subscribe to a plan." (Seção 12.12, CTA por papel). A abertura do checkout é reautorizada no backend — um Admin ou Member que chame a rota diretamente recebe 403.
+
+Como o estado sem plano não é resolvido por créditos, nenhum papel recebe "Buy AI Credits" como saída deste bloqueio — nem o Owner, cujo único CTA aqui é assinar.
+
+> 🔁 **SUPERSEDED (ADR-010):** a revisão 2.1 atribuía a assinatura a "**Admin** da organização" e mostrava o CTA "Subscribe to a plan" também ao Member, indicando que "um Admin da organização precisa assinar". Com três papéis, assinar é exclusivo do Owner e o CTA só aparece para quem tem a permissão.
 
 ---
 
@@ -6541,7 +6612,7 @@ O breakdown é **informativo**, exibido para que o usuário decida com contexto.
 
 O valor real retirado da carteira pessoal é **recalculado dentro da transação de débito**, sob o lock da Seção 12.16, e pode ser **maior ou menor** do que o breakdown do 409.
 
-O motivo é a concorrência intrínseca ao modelo de organizações: entre o aviso e a confirmação, **outro membro da mesma organização pode ter gasto créditos da org** (aumentando a parcela pessoal) ou **um Admin pode ter comprado créditos para a org** (reduzindo ou zerando a parcela pessoal). Congelar o valor do aviso e debitá-lo cegamente gastaria crédito pessoal que já não era necessário, ou debitaria menos do que o custo real.
+O motivo é a concorrência intrínseca ao modelo de organizações: entre o aviso e a confirmação, **outro membro da mesma organização pode ter gasto créditos da org** (aumentando a parcela pessoal) ou **o Owner pode ter comprado créditos para a org** (reduzindo ou zerando a parcela pessoal; até a ADR-010 esta frase dizia "um Admin" — compra para a org é hoje exclusiva do Owner). Congelar o valor do aviso e debitá-lo cegamente gastaria crédito pessoal que já não era necessário, ou debitaria menos do que o custo real.
 
 Se, no recálculo, a soma das três carteiras não cobrir mais o custo, a resposta é `InsufficientCreditsException` (402) — não um débito parcial.
 
@@ -6558,6 +6629,42 @@ Nenhum componente Livewire, Controller ou cliente pode injetar a flag por conta 
 - A confirmação vale para **uma ação**. Não é preferência persistida, não é "não perguntar novamente", não é sessão.
 - Cada nova ação que tocaria a carteira pessoal exige nova confirmação.
 - Um eventual opt-in persistente ("sempre usar meus créditos pessoais nesta organização") é **[A DEFINIR]** e exige ADR — não implementar por inferência.
+
+---
+
+# 12.20 Pendência do Mês 4 — Organization como Customer Stripe
+
+**Status:** pendência registrada, **não implementar** antes da sessão de Cashier do Mês 4. Esta seção registra o estado verificado do código e o escopo da migração; não é especificação de implementação.
+
+## Por que
+
+A Organização é a entidade de faturamento (Seção 20.1) e, com a ADR-010, o **Owner é o único responsável pelo faturamento** — assinar, trocar, cancelar plano, cartão e compra de créditos para a org (Seção 20.4). O customer Stripe, portanto, é a **Organization**: a assinatura e o meio de pagamento pertencem à org e sobrevivem à transferência de posse. Se o customer fosse o usuário Owner, transferir a posse deixaria a assinatura e o cartão presos à pessoa anterior.
+
+## Estado atual verificado (Outubro/2026)
+
+| Item | Onde | Estado |
+|------|------|--------|
+| Trait `Laravel\Cashier\Billable` | `app/Models/User.php` | **Aplicado em `User`**, não em `Organization` |
+| Colunas de customer | migration `2026_07_23_030750_create_customer_columns` | Em `users`: `stripe_id` (nullable, indexada), `pm_type`, `pm_last_four`, `trial_ends_at` |
+| Tabela `subscriptions` | migration `2026_07_23_030751_create_subscriptions_table` | FK `user_id` e índice `(user_id, stripe_status)` |
+| Tabela `subscription_items` | migration `2026_07_23_030752_create_subscription_items_table` (+ `meter_id`, `meter_event_name`) | Referencia `subscription_id`; não depende do Billable e não muda |
+| `Organization` | `app/Models/Organization.php` / `organizations` | Sem `Billable`, sem colunas `stripe_*` |
+| Configuração do Cashier | `Cashier::useCustomerModel()` | Não chamado em nenhum provider — o Cashier assume `App\Models\User` |
+| Uso do Cashier no código | `app/`, `routes/`, `resources/` | Nenhuma chamada a `subscribed()`, `newSubscription()`, `checkout()` ou similares — o trait está presente, mas sem uso |
+
+A migration `2026_09_14_030500_remove_billing_columns_from_users` removeu de `users` as colunas de plano e saldo de plano, mas **preservou** as colunas `stripe_*` do Cashier: o faturamento migrou para `organizations` no domínio, não no Stripe.
+
+## O que precisaria migrar
+
+1. **Colunas de customer em `organizations`:** `stripe_id` (nullable, indexada), `pm_type`, `pm_last_four`, `trial_ends_at`.
+2. **`subscriptions`:** trocar `user_id` por `organization_id` (FK `organizations`), refazer o índice como `(organization_id, stripe_status)`. Linhas existentes, se houver, precisam de backfill para a organização da qual o usuário é Owner.
+3. **Trait `Billable`:** remover de `User` e aplicar em `Organization`; registrar `Cashier::useCustomerModel(Organization::class)` no `AppServiceProvider`.
+4. **Colunas `stripe_*` em `users`:** remover em migration posterior ao backfill validado. Um `stripe_id` já existente em `users` aponta para um customer Stripe real; migrá-lo para a organização exige decisão sobre reaproveitar o customer ou criar um novo — **[A DEFINIR]** na sessão do Mês 4.
+5. **E-mail e nome do customer:** o Cashier usa por padrão `email` e `name` do Billable; `organizations` não tem `email`. O e-mail de cobrança (do Owner atual, atualizado na transferência de posse, ou coluna própria `billing_email`) é **[A DEFINIR]**.
+6. **Compra de créditos pessoais:** a carteira pessoal (`users.purchased_credits_balance`) é do usuário. Se o gateway da Seção 12.13 for o Stripe, a compra pessoal precisa de um pagador que é o **usuário**, não a org — o que pode exigir um segundo customer (usuário) ao lado do customer da organização, ou Checkout one-time sem customer persistido. **[A DEFINIR]**, junto da escolha do gateway.
+7. **`subscription_items`:** sem alteração.
+
+Nenhum destes passos é executado antes do Mês 4. Até lá, nenhum código novo deve passar a usar os métodos do `Billable` em `User`, porque eles seriam reescritos pela migração.
 
 ---
 
@@ -6666,6 +6773,8 @@ Laravel.
 - Checkout
 - Webhooks
 - Cashier
+
+O Billable do Cashier deve ser a `Organization`, não o `User` — pendência do Mês 4 registrada na Seção 12.20. Toda operação de assinatura, troca de plano, cartão e compra de créditos para a org é autorizada apenas para o Owner (Seção 20.4).
 
 ---
 
@@ -7027,7 +7136,7 @@ O Painel Administrativo **não** substitui a autenticação Firebase. Um adminis
 
 **Condição de reavaliação:** apenas por meio de uma ADR aprovada, e apenas se o sistema passar a contar com múltiplos funcionários exigindo hierarquia ou permissões granulares.
 
-> ⚠️ **Regra crítica:** `users.is_admin` é **staff da plataforma Arkion** (Nicolas e Erich). Não tem nenhuma relação com `organization_user.role`, que é o papel do usuário **dentro de uma organização** (`admin` ou `member`). Um não implica o outro em nenhuma direção: um staff da plataforma não é Admin de nenhuma organização de cliente, e um Admin de organização não tem acesso a `/admin/*`. Ver Seção 20.7. A decisão de manter `is_admin` como booleano **não** é revista por este modelo — os dois eixos coexistem por serem coisas diferentes.
+> ⚠️ **Regra crítica:** `users.is_admin` é **staff da plataforma Arkion** (Nicolas e Erich). Não tem nenhuma relação com `organization_user.role`, que é o papel do usuário **dentro de uma organização** (`owner`, `admin` ou `member` — ADR-010). Um não implica o outro em nenhuma direção: um staff da plataforma não é Owner nem Admin de nenhuma organização de cliente, e um Owner ou Admin de organização não tem acesso a `/admin/*`. Ver Seção 20.7. A decisão de manter `is_admin` como booleano **não** é revista por este modelo — os dois eixos coexistem por serem coisas diferentes.
 
 ---
 
@@ -7639,6 +7748,85 @@ O uso de JSONB oferece:
 
 ---
 
+# ADR-010 — Três Papéis de Organização
+
+**Status:** Aceita — Outubro/2026. Decisão de Nicolas e Erich.
+
+**Supersede:** "dois papéis apenas — a introdução de um terceiro exige ADR" (Seção 20.4, revisão 2.1); "a organização nunca fica sem Admin" (Seção 20.4, revisão 2.1; `CLAUDE.md` regra 32 anterior); "Members criam e editam marcas" (Seção 20.4, revisão 2.1; Seção 5.9).
+
+## Contexto
+
+A revisão 2.1 definiu dois papéis por organização, `admin` e `member`, com todas as capacidades sensíveis — faturamento, compra de créditos para a org, gerenciamento de membros e exclusão da org — concentradas em **qualquer** Admin, e com gerenciamento de Marcas aberto a todos os membros.
+
+Esse modelo tem três problemas para uma organização com mais de uma pessoa:
+
+- **Ninguém responde pelo faturamento.** Qualquer Admin podia trocar o cartão, mudar o plano, comprar créditos debitados no meio de pagamento da org ou excluir a organização. Não existia a figura de quem paga a conta.
+- **Admins podiam remover uns aos outros.** Inclusive quem criou a organização e paga por ela, desde que restasse ao menos um Admin. O invariante "nunca sem Admin" protegia contra a organização órfã, mas não contra a perda de controle por quem é dono dela.
+- **Member alterava a identidade da Marca.** Com Member gerenciando Marcas, um colaborador convidado apenas para usar as ferramentas de IA podia editar ou excluir o Brand Core — a Brand Memory, que é o ativo central do produto.
+
+O código da revisão 2.1 já precisava de um "dono" para apresentação e o resolvia com `Organization::owner()`: o Admin mais antigo por `joined_at`, documentado explicitamente como "apenas apresentação, nunca critério de autorização". A necessidade existia; o modelo é que não a reconhecia.
+
+## Decisão
+
+`organization_user.role` passa a ter **três** valores: `owner`, `admin` e `member`.
+
+- **Owner** — exatamente um por organização. É o único responsável pelo faturamento (cartão, plano, assinatura), pela compra de créditos para a organização, pela atribuição de papéis, pela transferência de posse e pela exclusão da organização. Pode convidar e remover Admins e Members.
+- **Admin** — gerencia o trabalho: cria, edita e exclui Marcas e sub-brands (incluindo Brand Core), vê relatórios de consumo e convida e remove **Members**. Não toca faturamento, papéis nem a existência da organização.
+- **Member** — usa as ferramentas de IA nas Marcas e vê os saldos. Não gerencia Marcas nem membros.
+
+A matriz completa e as invariantes estão na Seção 20.4. Resumo das invariantes:
+
+- exatamente um Owner por organização, garantido por **índice único parcial** no banco (`UNIQUE(organization_id) WHERE role = 'owner'`) **e** por verificação dentro de transação;
+- o Owner não pode ser removido, rebaixado nem sair da organização; só deixa de ser Owner por **transferência de posse** a um membro existente, e o Owner anterior vira Admin;
+- a organização nunca fica sem Owner;
+- a organização Personal criada no primeiro login tem o usuário como Owner.
+
+O papel é sempre o Enum `App\Enums\OrganizationRole`, e toda decisão de autorização passa por seus métodos `can*()` — nunca por comparação de strings de papel.
+
+O eixo `users.is_admin` (staff da plataforma, Seção 20.7) **não muda** e continua sem nenhuma relação com o papel `admin` de `organization_user`.
+
+## Alternativa rejeitada
+
+**Manter dois papéis, com `Organization::owner()` como helper de exibição.** O "dono" seria derivado — o Admin mais antigo por `joined_at` — e serviria apenas para apresentação (e-mail de cobrança, exibição na UI), nunca para autorização.
+
+Rejeitada porque:
+
+- **Um dono derivado não é dono.** Basta outro Admin remover o Admin mais antigo para que o "owner" mude sem que ninguém tenha transferido nada. A posse precisa ser um fato persistido, não uma consequência da ordem de entrada.
+- **Não resolve a autorização.** O problema não é exibir quem é o dono, é impedir que outros Admins façam o que só ele deve fazer. Um helper de exibição deixa faturamento e exclusão abertos a todos os Admins.
+- **Cria dois conceitos de "owner" que divergem.** O helper diria "este é o dono" enquanto as Policies tratariam todos os Admins como iguais — exatamente a ambiguidade que a regra "nunca usar um eixo pelo outro" (Seção 20.7) existe para evitar.
+- **O banco não protegeria nada.** Com papel persistido, "no máximo um Owner" vira índice único parcial; com papel derivado, não há o que indexar.
+
+Também considerado e mantido como rejeitado: RBAC granular por organização (permissões configuráveis por papel). Três papéis fixos cobrem os casos atuais sem tabela de permissões, cache de permissões nem tela de configuração.
+
+## Consequências
+
+**Banco**
+
+- `organization_user.role` ganha o valor `owner`; o `enum('role', ['admin', 'member'])` atual precisa ser alterado (no PostgreSQL, o `CHECK` gerado pelo Laravel).
+- Novo índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'`, criado por `DB::statement()`.
+- Backfill: em cada organização existente, um Admin passa a Owner. O backfill de organizações já executado criou exatamente um Admin por organização (a Personal), então o critério de desempate — o Admin mais antigo por `joined_at`, o mesmo de `Organization::owner()` — só importa se existirem organizações com mais de um Admin. O backfill precisa falhar, não escolher em silêncio, se encontrar uma organização sem Admin.
+
+**Código** (nada implementado; levantamento na Seção 20.8)
+
+- `OrganizationRole` ganha `Owner` e um conjunto de métodos `can*()` que espelha a matriz da Seção 20.4.
+- `Organization::owner()` deixa de ser helper de exibição e passa a ler o papel persistido; `isLastAdmin()` e `admins()->count()` deixam de ser invariantes e são substituídos pela verificação de Owner.
+- `OrganizationPolicy` deixa de tratar todo Admin como capaz de faturamento, papéis, exclusão e compra para a org; `ProjectPolicy` passa a exigir Owner ou Admin para criar, editar e excluir Marcas.
+- `SyncFirebaseUserAction` cria a organização Personal com o usuário como Owner.
+- Novo fluxo de transferência de posse, transacional, que troca os dois papéis em uma única operação sob lock.
+
+**Produto**
+
+- CTAs de assinatura, upgrade e compra para a org aparecem só para o Owner; os demais papéis veem "ask your organization owner" (Seção 12.12).
+- Member perde a capacidade de criar e editar Marcas. Organizações existentes onde Members editavam Marcas perdem esse comportamento na migração — é intencional.
+- O customer Stripe passa a ser a `Organization` (Seção 12.20): o faturamento sobrevive à transferência de posse.
+
+**Em aberto** (Seção 20.4)
+
+- Aceite do destinatário na transferência de posse — **[A DEFINIR]**.
+- Semântica de exclusão da organização (soft delete, prazo de carência, efeito sobre Marcas e assinatura) — **[A DEFINIR]**.
+
+---
+
 > ⚠️ **Regra crítica:** As ADRs documentadas representam decisões arquiteturais consolidadas do projeto. Alterá-las exige revisão formal da arquitetura e atualização deste SAD; agentes de IA não devem substituí-las por preferência técnica própria.
 
 ---
@@ -7853,15 +8041,23 @@ Broadcast
 
 ---
 
-**NUNCA** deixe uma organização sem nenhum Admin.
+**NUNCA** deixe uma organização sem Owner, nem com mais de um Owner.
 
-**SEMPRE** impeça a remoção e o rebaixamento do último Admin, verificando o invariante dentro da transação (Seção 20.4).
+**SEMPRE** impeça a remoção, o rebaixamento e a saída do Owner; ele só deixa de ser Owner por transferência de posse, verificada dentro da transação, sob lock, com o índice único parcial como segunda barreira (Seção 20.4).
 
 ---
 
-**NUNCA** permita que um Member assine plano, compre créditos para a organização, gerencie membros ou exclua a organização.
+**NUNCA** permita que Admin ou Member gerenciem faturamento, comprem créditos para a organização, atribuam papéis, transfiram a posse ou excluam a organização. **NUNCA** permita que um Member crie, edite ou exclua Marcas, ou convide e remova membros.
 
 **SEMPRE** aplique a matriz de permissões da Seção 20.4 por Policy, nunca escondendo botões na interface.
+
+---
+
+**NUNCA** compare strings de papel (`$role === 'admin'`, `wherePivot('role', 'owner')` em regra de autorização).
+
+**SEMPRE** use o Enum `OrganizationRole` e seus métodos `can*()` para decidir o que um papel pode fazer.
+
+> 🔁 **SUPERSEDED (ADR-010):** as regras anteriores deste bloco eram "NUNCA deixe uma organização sem nenhum Admin / SEMPRE impeça a remoção e o rebaixamento do último Admin" e "NUNCA permita que um Member assine plano, compre créditos para a organização, gerencie membros ou exclua a organização". Foram substituídas pelas regras acima.
 
 ---
 
@@ -8108,7 +8304,9 @@ Consequências, todas invioláveis:
 
 ## 20.3 Organização "Personal" Automática
 
-Todo usuário recebe automaticamente uma organização **"Personal"** no **primeiro login**, com ele como **Admin**.
+Todo usuário recebe automaticamente uma organização **"Personal"** no **primeiro login**, com ele como **Owner** (ADR-010).
+
+> 🔁 **SUPERSEDED (ADR-010):** a revisão 2.1 criava a organização Personal com o usuário como **Admin**. Com três papéis, ele é o Owner — o único membro da Personal no nascimento, e o responsável pelo faturamento dela.
 
 - A criação é automática e faz parte do fluxo de sincronização do usuário Firebase (`App\Actions\Auth\SyncFirebaseUserAction`).
 - A organização Personal nasce **sem plano** (`plan = null`, Seção 12.18), como qualquer outra organização.
@@ -8123,38 +8321,90 @@ A partir da segunda organização, o seletor aparece e passa a ser o controle de
 
 ---
 
-## 20.4 Matriz de Permissões — Dois Papéis
+## 20.4 Matriz de Permissões — Três Papéis
 
-O papel do usuário dentro de uma organização vive em `organization_user.role` e tem exatamente **dois valores**: `admin` e `member`. Não há terceiro papel, e a introdução de qualquer outro exige ADR.
+O papel do usuário dentro de uma organização vive em `organization_user.role` e tem exatamente **três valores**: `owner`, `admin` e `member` (ADR-010). Em código, o papel é sempre o Enum `App\Enums\OrganizationRole`; a introdução de um quarto papel exige nova ADR.
 
-| Capacidade | Admin | Member |
-|------------|:-----:|:------:|
-| Gerenciar faturamento da organização (assinar, trocar e cancelar plano) | ✅ | ❌ |
-| Comprar créditos **para a organização** | ✅ | ❌ |
-| Gerenciar membros (convidar, remover, alterar papéis) | ✅ | ❌ |
-| Excluir a organização | ✅ | ❌ |
-| Gerenciar Marcas (criar, editar, excluir Brands e sub-brands) | ✅ | ✅ |
-| Rodar execuções | ✅ | ✅ |
-| Comprar **créditos pessoais** | ✅ | ✅ |
+| Ação | Owner | Admin | Member |
+|------|:-----:|:-----:|:------:|
+| Ver a organização e usar as ferramentas de IA nas marcas | ✅ | ✅ | ✅ |
+| Ver saldos de créditos (org e pessoal) | ✅ | ✅ | ✅ |
+| Ver consumo total de créditos (relatórios de uso) | ✅ | ✅ | ❌ |
+| Criar, editar e excluir Marcas e Sub-marcas; editar Brand Core e demais dados da marca | ✅ | ✅ | ❌ |
+| Convidar membros | Admin ou Member | somente Member | ❌ |
+| Remover membros | Admin ou Member | somente Member | ❌ |
+| Atribuir ou alterar papéis | ✅ | ❌ | ❌ |
+| Faturamento: cartão, plano, assinatura | ✅ | ❌ | ❌ |
+| Comprar créditos para a organização | ✅ | ❌ | ❌ |
+| Comprar créditos pessoais | ✅ | ✅ | ✅ |
+| Transferir a posse | ✅ | ❌ | ❌ |
+| Excluir a organização | ✅ | ❌ | ❌ |
+
+Leitura das linhas de membros: o Owner convida e remove membros **com papel** Admin ou Member; o Admin convida e remove apenas membros **com papel** Member. Ninguém convida um segundo Owner, e ninguém remove o Owner (ver invariantes abaixo).
 
 Notas:
 
-- Comprar créditos pessoais é capacidade do **usuário**, não da organização: um Member compra para a própria carteira (`users.purchased_credits_balance`), que o acompanha entre organizações.
-- Rodar execuções continua sujeito aos três eixos da Seção 12.1: plano ativo, feature gating e saldo. O papel autoriza a ação; não dispensa nenhum dos três.
-- A verificação de papel é responsabilidade de Policies do Laravel, nunca da interface. Esconder um botão não é autorização.
+- **Ver saldos** significa ver as duas carteiras da organização e a **própria** carteira pessoal. Nenhum papel vê a carteira pessoal de outro membro (Seção 12.2).
+- **Usar as ferramentas de IA** continua sujeito aos três eixos da Seção 12.1: plano ativo, feature gating e saldo. O papel autoriza a ação; não dispensa nenhum dos três.
+- **Comprar créditos pessoais** é capacidade do **usuário**, não da organização: qualquer membro compra para a própria carteira (`users.purchased_credits_balance`), que o acompanha entre organizações.
+- **Atribuir ou alterar papéis** é exclusivo do Owner e se limita a `admin` ↔ `member`. Tornar alguém Owner não é "alterar papel": é transferência de posse, um fluxo próprio (abaixo).
+- **Admin convidando** só pode atribuir o papel `member` ao convite. Um convite com papel `admin` vindo de um Admin é recusado no backend.
+- A verificação de papel é responsabilidade de Policies do Laravel, que consultam os métodos `can*()` de `OrganizationRole` — nunca da interface e nunca por comparação de strings. Esconder um botão não é autorização.
+- O que a interface mostra a cada papel diante de um bloqueio de plano ou de saldo está na Seção 12.12 (CTA por papel).
+- **Editar os dados da própria organização** (nome, slug) não consta da matriz. Quem pode fazê-lo é **[A DEFINIR]**; até a decisão, não ampliar essa capacidade além do Owner.
 
-### Invariante obrigatório — a organização nunca fica sem Admin
+> 🔁 **SUPERSEDED (ADR-010) — Matriz de dois papéis.** A revisão 2.1 desta seção, intitulada "Matriz de Permissões — Dois Papéis", definia `organization_user.role` com exatamente dois valores, `admin` e `member`, declarava que "não há terceiro papel, e a introdução de qualquer outro exige ADR", e registrava esta matriz:
+>
+> | Capacidade | Admin | Member |
+> |------------|:-----:|:------:|
+> | Gerenciar faturamento da organização (assinar, trocar e cancelar plano) | ✅ | ❌ |
+> | Comprar créditos **para a organização** | ✅ | ❌ |
+> | Gerenciar membros (convidar, remover, alterar papéis) | ✅ | ❌ |
+> | Excluir a organização | ✅ | ❌ |
+> | Gerenciar Marcas (criar, editar, excluir Brands e sub-brands) | ✅ | ✅ |
+> | Rodar execuções | ✅ | ✅ |
+> | Comprar **créditos pessoais** | ✅ | ✅ |
+>
+> A ADR exigida foi registrada (ADR-010) e substitui integralmente esta matriz. Em particular, **Member deixou de gerenciar Marcas** e **Admin deixou de gerenciar faturamento, comprar créditos para a org, alterar papéis e excluir a organização**.
 
-> ⚠️ **REGRA DE NEGÓCIO:** Uma organização **nunca** pode ficar sem nenhum Admin.
+### Invariantes obrigatórias — o Owner
 
-- O **último Admin não pode ser removido** da organização.
-- O **último Admin não pode ser rebaixado a Member**.
-- O último Admin também não pode sair da organização por conta própria: sair é uma remoção como outra qualquer.
-- Para deixar a organização, o último Admin precisa antes **promover outro membro a Admin** ou **excluir a organização**.
+> ⚠️ **REGRAS DE NEGÓCIO:** as regras abaixo são invariantes de domínio, não detalhes de implementação. Valem em toda superfície que altere participação ou papel — API, Livewire, painel administrativo, comandos Artisan, seeders e factories.
 
-Este é um **invariante de negócio**, não um detalhe de implementação. Ele vale em toda superfície que altere participação ou papel — API, Livewire, painel administrativo, comandos Artisan e seeders — e deve ser verificado **dentro da transação** que executa a alteração, sob lock, para que duas remoções simultâneas dos dois últimos Admins não deixem a organização órfã.
+1. **Exatamente um Owner por organização.** Garantido em duas camadas, ambas obrigatórias:
+   - no banco, pelo **índice único parcial** `UNIQUE(organization_id) WHERE role = 'owner'` em `organization_user` (Seção 4.15), que torna impossível persistir um segundo Owner;
+   - no domínio, por **verificação dentro da transação**, sob lock da linha da organização, em toda operação que crie, altere ou remova participação. O índice garante o teto ("no máximo um"); só a transação garante o piso ("pelo menos um").
+2. **O Owner não pode ser removido nem rebaixado.** Nenhum papel — nem o próprio Owner, nem staff da plataforma pelo painel administrativo — remove o Owner da organização ou altera o papel dele para `admin` ou `member` por "alterar papel". O Owner só deixa de ser Owner por **transferência de posse**.
+3. **Transferência de posse:**
+   - o destino é um **membro existente** da organização (Admin ou Member);
+   - na mesma transação, o destino passa a `owner` e o **Owner anterior passa a `admin`**;
+   - a ordem das escritas dentro da transação respeita o índice único parcial (rebaixar o Owner anterior antes de promover o destino), de modo que em nenhum instante existam dois Owners;
+   - destino **fora da organização** não é aceito: é preciso **convidar primeiro** e, depois que o convite for aceito, transferir;
+   - a transferência é exclusiva do Owner (matriz acima).
+4. **Uma organização nunca fica sem Owner.** Esta regra **substitui** "a organização nunca fica sem Admin". Uma organização pode legitimamente não ter nenhum Admin — o Owner sozinho cobre todas as capacidades.
+5. **O Owner não pode sair da organização sem transferir antes.** Sair é uma remoção como outra qualquer e cai na regra 2. A única outra forma de o Owner deixar de pertencer à organização é excluí-la.
+6. **A organização Personal criada no primeiro login tem o usuário como Owner** (Seção 20.3).
+7. **O papel `admin` de `organization_user` não tem relação com `users.is_admin`** (staff da plataforma). Os dois eixos continuam independentes, em todas as direções, inclusive para o Owner: ser Owner não concede `users.is_admin`, e ser staff da plataforma não torna ninguém Owner ou Admin de organização de cliente (Seção 20.7).
 
-Uma organização sem Admin é um estado irrecuperável pelo próprio usuário: ninguém poderia mais assinar um plano, comprar créditos para a org, gerenciar membros ou excluí-la.
+Uma organização sem Owner é um estado irrecuperável pelo próprio cliente: ninguém poderia mais assinar um plano, comprar créditos para a org, atribuir papéis, transferir a posse ou excluí-la. Por isso o piso é verificado dentro da transação, e não apenas na Policy — duas operações simultâneas avaliadas fora da transação passariam ambas.
+
+> 🔁 **SUPERSEDED (ADR-010) — Invariante "a organização nunca fica sem Admin".** A revisão 2.1 registrava: "Uma organização **nunca** pode ficar sem nenhum Admin. O **último Admin não pode ser removido** da organização. O **último Admin não pode ser rebaixado a Member**. O último Admin também não pode sair da organização por conta própria: sair é uma remoção como outra qualquer. Para deixar a organização, o último Admin precisa antes **promover outro membro a Admin** ou **excluir a organização**." A verificação era feita por `Organization::isLastAdmin()` / contagem de Admins (`admins()->count()`), sem constraint de banco. Esse invariante, o helper `isLastAdmin()` e a contagem de Admins como critério estão superados: o invariante passa a ser sobre o Owner (regras 1 a 5 acima), com o teto garantido por índice.
+
+### [A DEFINIR] — Aceite na transferência de posse
+
+Se a transferência exige **aceite do destinatário** (convite de transferência pendente, aceito ou recusado por ele) ou é efetivada imediatamente pelo Owner é **[A DEFINIR]**. A decisão afeta: a existência de um estado "transferência pendente", a expiração desse estado, o que acontece se o destinatário sair da organização ou for removido enquanto pendente, e a notificação de ambas as partes. Não implementar por inferência. Enquanto não houver decisão, as invariantes 1 a 5 valem para qualquer das duas formas.
+
+### [A DEFINIR] — Exclusão da organização
+
+Excluir a organização é exclusivo do Owner (matriz acima). A **semântica** da exclusão é **[A DEFINIR]**:
+
+- **soft delete ou exclusão definitiva** — a tabela `organizations` já possui `deleted_at` (migration `2026_09_14_030000_create_organizations_table`), mas isso é capacidade de schema, não decisão de produto;
+- **prazo de carência** — se existe janela de recuperação e quem pode restaurar;
+- **efeito sobre as Marcas** e sub-brands, suas Executions, assets e o histórico produzido;
+- **efeito sobre a assinatura** — cancelamento imediato, ao fim do ciclo, reembolso, e o destino de `organizations.purchased_credits_balance` não consumido;
+- **efeito sobre os membros** — inclusive usuários para quem esta era a única organização (o destino da carteira pessoal nesse cenário já é [A DEFINIR], Seção 20.8), e a interação com a regra "nenhum usuário existe sem ao menos uma organização" (Seção 20.3), em particular na exclusão da organização Personal.
+
+Não implementar exclusão de organização antes desta decisão.
 
 ---
 
@@ -8207,16 +8457,16 @@ O sistema tem **dois eixos de permissão completamente independentes**. Confundi
 | Eixo | Onde vive | O que significa | Escopo |
 |------|-----------|-----------------|--------|
 | `users.is_admin` | Coluna booleana em `users` | **Staff da plataforma Arkion** — hoje, Nicolas e Erich. Dá acesso ao painel administrativo `/admin/*` (Seção 14). | Global, da plataforma |
-| `organization_user.role` | Coluna na pivot `organization_user` | **Papel dentro de uma organização** — `admin` ou `member` (Seção 20.4). | Por organização |
+| `organization_user.role` | Coluna na pivot `organization_user` | **Papel dentro de uma organização** — `owner`, `admin` ou `member` (Seção 20.4, ADR-010). | Por organização |
 
 > ⚠️ **Regra crítica:** Um não implica o outro **em nenhuma direção**.
 
-- Ser `users.is_admin = true` **não** torna o usuário Admin de nenhuma organização, nem lhe dá qualquer papel implícito nas organizações de clientes.
-- Ser Admin de uma organização **não** concede `users.is_admin` nem qualquer acesso a `/admin/*`.
+- Ser `users.is_admin = true` **não** torna o usuário Owner nem Admin de nenhuma organização, nem lhe dá qualquer papel implícito nas organizações de clientes.
+- Ser Owner ou Admin de uma organização **não** concede `users.is_admin` nem qualquer acesso a `/admin/*`.
 - Um staff da plataforma que também seja cliente tem os dois atributos, de forma independente, e cada verificação consulta apenas o eixo que lhe corresponde.
-- Nenhuma verificação pode usar um eixo como atalho para o outro. `if ($user->is_admin)` jamais autoriza uma ação de organização; `if ($org->isAdmin($user))` jamais autoriza uma ação de plataforma.
+- Nenhuma verificação pode usar um eixo como atalho para o outro. `if ($user->is_admin)` jamais autoriza uma ação de organização; `$user->roleIn($org)?->canManageBilling()` jamais autoriza uma ação de plataforma.
 
-O termo "admin" aparece nos dois eixos por acidente de vocabulário. Em código, nomear com precisão (`isPlatformStaff()` versus `isOrganizationAdmin()`) é preferível a repetir a ambiguidade.
+O termo "admin" aparece nos dois eixos por acidente de vocabulário — e continua aparecendo depois da ADR-010, que manteve o valor `admin` em `organization_user.role` ao lado do novo `owner`. Em código, nomear com precisão (`isPlatformStaff()` versus `OrganizationRole::Admin`) é preferível a repetir a ambiguidade. O Owner também não é "o admin da plataforma daquela organização": é um papel de cliente, no eixo da organização.
 
 ---
 
@@ -8232,16 +8482,42 @@ O termo "admin" aparece nos dois eixos por acidente de vocabulário. Em código,
 | Contexto de sessão com duas variáveis | Pendente |
 | Validação "active_project pertence à active_organization" | Pendente |
 | Migração do escopo de `user_id` para `organization_id` | Pendente |
-| Invariante do último Admin | Pendente |
+| ~~Invariante do último Admin~~ | 🔁 **SUPERSEDED (ADR-010)** — substituído pelas invariantes do Owner |
+| Três papéis (`owner`, `admin`, `member`) no Enum e em `organization_user.role` | Pendente (ADR-010) |
+| Índice único parcial `UNIQUE(organization_id) WHERE role = 'owner'` | Pendente (Seção 4.15) |
+| Invariantes do Owner verificadas dentro da transação (Seção 20.4) | Pendente |
+| Backfill: um Admin de cada organização existente promovido a Owner | Pendente (ADR-010, Consequências) |
+| Organização Personal criada com o usuário como Owner | Pendente |
+| Fluxo de transferência de posse | Pendente; aceite do destinatário **[A DEFINIR]** (Seção 20.4) |
+| Matriz de três papéis aplicada em `OrganizationPolicy` e `ProjectPolicy` | Pendente |
+| CTA por papel nos três estados de bloqueio | Pendente (Seção 12.12) |
 | Três carteiras de crédito | Pendente (Seção 12.8) |
-| Titular da assinatura Stripe = Organization | Pendente (Seção 12.13) |
+| Titular da assinatura Stripe = Organization (`Billable` em `Organization`) | Pendente — **Mês 4** (Seção 12.20) |
 | Seletor de organização no header | Pendente |
 | Divisão entre `EnsureActiveOrganization` e `EnsureActiveProject` | **[A DEFINIR]** |
 | Fluxo de convite de membros (e-mail, aceite, expiração) | **[A DEFINIR]** |
-| Política de exclusão de organização com Marcas e Executions | **[A DEFINIR]** |
+| Política de exclusão de organização (soft delete, carência, Marcas, Executions, assinatura) | **[A DEFINIR]** (Seção 20.4) |
 | Destino da carteira pessoal quando o usuário deixa todas as orgs | **[A DEFINIR]** |
 
 A migração é estrutural e retrocompatível apenas por backfill: toda Brand existente hoje precisa ser adotada pela organização Personal do seu antigo `user_id` (Seção 12.8).
+
+### Código que ainda segue o modelo de dois papéis (verificado em Outubro/2026)
+
+A revisão 2.2 é só documentação. O código atual implementa a revisão 2.1 e precisa ser migrado para a ADR-010 em sessão de código própria. Pontos verificados:
+
+| Arquivo | Estado atual | O que muda com a ADR-010 |
+|---------|--------------|--------------------------|
+| `app/Enums/OrganizationRole.php` | Dois casos (`Admin`, `Member`); o docblock afirma que não existe `owner`; `canManageBilling()`, `canManageMembers()` e `canPurchaseForOrganization()` retornam verdadeiro para Admin | Caso `Owner`; métodos `can*()` espelhando a matriz da Seção 20.4 (billing, compra para a org, papéis, transferência e exclusão só Owner; Marcas e relatórios Owner e Admin; convite e remoção com o papel do alvo como argumento) |
+| `app/Models/Organization.php` | `owner()` deriva o "dono" como o Admin mais antigo por `joined_at` — exatamente a alternativa rejeitada pela ADR-010; `admins()` e `isLastAdmin()` sustentam o invariante antigo | `owner()` lê o papel persistido; `isLastAdmin()` e o uso de `admins()->count()` como invariante saem |
+| `app/Policies/OrganizationPolicy.php` | `update`, `delete`, `manageBilling`, `manageMembers`, `purchaseForOrganization`, `removeMember` e `changeRole` exigem Admin; `removeMember` e `changeRole` protegem o último Admin | Billing, compra para a org, papéis e exclusão passam a Owner; convite e remoção respeitam o papel do alvo; o Owner nunca é alvo de remoção ou troca de papel |
+| `app/Policies/ProjectPolicy.php` | `create`, `update`, `delete` e `restore` para qualquer membro | `view` para qualquer membro; demais para Owner e Admin (Seção 5.9) |
+| `app/Actions/Auth/SyncFirebaseUserAction.php` | Cria a Personal com `OrganizationRole::Admin` | Cria com `OrganizationRole::Owner` |
+| `database/migrations/2026_09_14_030100_create_organization_user_table.php` | `enum('role', ['admin', 'member'])`, sem índice parcial | Não é editada (migration já executada); uma **nova** migration amplia o valor e cria o índice |
+| Migrations `2026_09_14_030300` a `030600` | Backfills e `down()` filtram `role = 'admin'` | Não são editadas. O `down()` da nova migration precisa devolver `owner` → `admin` antes de ser desfeita, para que os `down()` anteriores continuem encontrando o Admin |
+| `database/factories/ProjectFactory.php`, `database/seeders/DevelopmentSeeder.php` | Criam membros com `Admin` / `Member` | O criador da organização passa a `Owner` |
+| `tests/Feature/OrganizationTest.php` e demais testes de organização | Cobrem `isLastAdmin()` e Member sem `purchaseForOrganization` / `manageMembers` | Reescritos para as invariantes do Owner e a matriz de três papéis |
+
+> Nota: a frase de abertura desta seção ("Nada desta seção está implementado") e várias linhas "Pendente" da tabela acima são anteriores às sessões de código de setembro de 2026, que implementaram `organizations`, `organization_user`, `projects.organization_id`, a organização Personal no primeiro login e o escopo por organização. A revisão 2.2 atualizou apenas as linhas ligadas a papéis; uma revisão geral do estado de implementação desta seção fica pendente.
 
 ---
 
