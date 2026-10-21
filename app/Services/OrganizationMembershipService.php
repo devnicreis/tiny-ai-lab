@@ -6,13 +6,24 @@ use App\Enums\OrganizationRole;
 use App\Exceptions\AlreadyOrganizationMemberException;
 use App\Exceptions\InsufficientOrganizationRoleException;
 use App\Exceptions\InvalidOwnershipTransferException;
+use App\Exceptions\InvitationAlreadyAcceptedException;
+use App\Exceptions\InvitationEmailMismatchException;
+use App\Exceptions\InvitationEmailNotVerifiedException;
+use App\Exceptions\InvitationExpiredException;
+use App\Exceptions\InvitationNotFoundException;
+use App\Exceptions\InvitationRevokedException;
 use App\Exceptions\NotOrganizationMemberException;
 use App\Exceptions\OwnerIsImmutableException;
 use App\Exceptions\OwnerRoleRequiresTransferException;
+use App\Exceptions\PendingInvitationExistsException;
+use App\Mail\OrganizationInvitationMail;
 use App\Models\Organization;
+use App\Models\OrganizationInvitation;
 use App\Models\User;
 use Closure;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use LogicException;
 
 /**
@@ -48,11 +59,19 @@ use LogicException;
 class OrganizationMembershipService
 {
     /**
+     * Validade de um convite.
+     *
+     * A SAD não fixa o prazo (fluxo de convite **[A DEFINIR]**, SAD 20.8);
+     * sete dias é o valor do MVP.
+     */
+    public const INVITATION_TTL_DAYS = 7;
+
+    /**
      * Adiciona um membro com papel `admin` ou `member`.
      *
      * Ninguém entra como Owner: a posse só muda por transferência. Quem
-     * convida, e com qual papel pode convidar, é decidido pelo fluxo de
-     * convite (**[A DEFINIR]**, SAD 20.8) com `canManageMemberWithRole()`.
+     * convida, e com qual papel pode convidar, é decidido por `invite()` com
+     * `canManageMemberWithRole()`.
      *
      * @throws OwnerRoleRequiresTransferException
      * @throws AlreadyOrganizationMemberException
@@ -179,22 +198,231 @@ class OrganizationMembershipService
     }
 
     /**
+     * Convida um e-mail para a organização com papel `admin` ou `member`.
+     *
+     * O Owner convida Admins e Members; o Admin, somente Members; o Member,
+     * ninguém (SAD 20.4). Ninguém é convidado como Owner.
+     *
+     * O token em claro é devolvido **uma única vez**: o banco guarda só o hash
+     * sha256. O link volta ao chamador para que a interface o exiba a quem
+     * convidou — o provedor SMTP ainda é **[A DEFINIR]**, e o fluxo não pode
+     * depender do envio. O e-mail é enfileirado em `notifications` depois do
+     * commit, como conveniência.
+     *
+     * Um convite pendente já expirado para o mesmo e-mail é revogado aqui: ele
+     * não pode mais ser aceito e não deve bloquear o novo.
+     *
+     * @return array{invitation: OrganizationInvitation, token: string, url: string}
+     *
+     * @throws OwnerRoleRequiresTransferException
+     * @throws InsufficientOrganizationRoleException
+     * @throws AlreadyOrganizationMemberException
+     * @throws PendingInvitationExistsException
+     */
+    public function invite(Organization $organization, User $actor, string $email, OrganizationRole $role): array
+    {
+        if (! $role->isAssignable()) {
+            throw OwnerRoleRequiresTransferException::for($organization);
+        }
+
+        $email = mb_strtolower(trim($email));
+        $token = bin2hex(random_bytes(32));
+
+        try {
+            $invitation = $this->withLockedOrganization(
+                $organization,
+                function (Organization $locked) use ($actor, $email, $role, $token): OrganizationInvitation {
+                    if (! $this->actorRole($locked, $actor)->canManageMemberWithRole($role)) {
+                        throw InsufficientOrganizationRoleException::for($locked);
+                    }
+
+                    if ($locked->users()->whereRaw('lower(users.email) = ?', [$email])->exists()) {
+                        throw AlreadyOrganizationMemberException::for($locked);
+                    }
+
+                    $open = $locked->invitations()
+                        ->whereNull('accepted_at')
+                        ->whereNull('revoked_at')
+                        ->whereRaw('lower(email) = ?', [$email])
+                        ->first();
+
+                    if ($open !== null && ! $open->isExpired()) {
+                        throw PendingInvitationExistsException::for($locked);
+                    }
+
+                    $open?->update(['revoked_at' => now()]);
+
+                    return $locked->invitations()->create([
+                        'email' => $email,
+                        'role' => $role,
+                        'token_hash' => OrganizationInvitation::hashToken($token),
+                        'invited_by_user_id' => $actor->id,
+                        'expires_at' => now()->addDays(self::INVITATION_TTL_DAYS),
+                    ]);
+                },
+            );
+        } catch (UniqueConstraintViolationException) {
+            // Corrida entre dois convites para o mesmo e-mail: o índice único
+            // parcial é a última barreira.
+            throw PendingInvitationExistsException::for($organization);
+        }
+
+        $url = $this->invitationUrl($token);
+
+        Mail::to($email)->queue(new OrganizationInvitationMail(
+            organizationName: $organization->name,
+            inviterName: $actor->name,
+            roleLabel: $role->label(),
+            acceptUrl: $url,
+            expiresAt: $invitation->expires_at,
+        ));
+
+        return ['invitation' => $invitation, 'token' => $token, 'url' => $url];
+    }
+
+    /**
+     * Revoga um convite pendente.
+     *
+     * Quem revoga precisa poder convidar com o papel do convite. Revogar um
+     * convite já revogado é inócuo; um convite aceito não é revogável — a
+     * participação já existe e se desfaz por `removeMember()`.
+     *
+     * @throws InsufficientOrganizationRoleException
+     * @throws InvitationAlreadyAcceptedException
+     */
+    public function revokeInvitation(OrganizationInvitation $invitation, User $actor): void
+    {
+        $this->withLockedOrganization(
+            $invitation->organization,
+            function (Organization $locked) use ($invitation, $actor): void {
+                $current = $locked->invitations()
+                    ->whereKey($invitation->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (! $this->actorRole($locked, $actor)->canManageMemberWithRole($current->role)) {
+                    throw InsufficientOrganizationRoleException::for($locked);
+                }
+
+                if ($current->isAccepted()) {
+                    throw InvitationAlreadyAcceptedException::for($locked);
+                }
+
+                if (! $current->isRevoked()) {
+                    $current->update(['revoked_at' => now()]);
+                }
+            },
+        );
+
+        $invitation->refresh();
+    }
+
+    /**
+     * Aceita um convite em nome do usuário autenticado.
+     *
+     * O link não basta: o usuário precisa ter o e-mail **verificado pelo
+     * Firebase** e igual ao do convite, sem diferenciar maiúsculas. Sem isso,
+     * quem se cadastrasse com o e-mail alheio sequestraria o convite.
+     * `email_verified_at` espelha a claim `email_verified` do token da própria
+     * requisição (`SyncFirebaseUserAction`).
+     *
+     * Aceitar sendo já membro é idempotente: o papel existente não muda — nem
+     * para cima, nem para baixo — e o convite pendente é encerrado.
+     *
+     * @throws InvitationNotFoundException
+     * @throws InvitationEmailNotVerifiedException
+     * @throws InvitationEmailMismatchException
+     * @throws InvitationRevokedException
+     * @throws InvitationExpiredException
+     * @throws InvitationAlreadyAcceptedException
+     */
+    public function acceptInvitation(User $user, string $token): Organization
+    {
+        $invitation = OrganizationInvitation::query()
+            ->where('token_hash', OrganizationInvitation::hashToken($token))
+            ->first()
+            ?? throw InvitationNotFoundException::make();
+
+        $organization = $invitation->organization
+            ?? throw InvitationNotFoundException::make();
+
+        return $this->withLockedOrganization(
+            $organization,
+            function (Organization $locked) use ($user, $invitation): Organization {
+                $current = $locked->invitations()
+                    ->whereKey($invitation->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (! $user->hasVerifiedEmail()) {
+                    throw InvitationEmailNotVerifiedException::for($locked);
+                }
+
+                if (! $current->isFor($user->email)) {
+                    throw InvitationEmailMismatchException::for($locked);
+                }
+
+                $isMember = $locked->hasMember($user);
+
+                if ($current->isAccepted()) {
+                    return $isMember ? $locked : throw InvitationAlreadyAcceptedException::for($locked);
+                }
+
+                if ($current->isRevoked()) {
+                    throw InvitationRevokedException::for($locked);
+                }
+
+                if ($current->isExpired()) {
+                    throw InvitationExpiredException::for($locked);
+                }
+
+                if (! $isMember) {
+                    $locked->users()->attach($user->id, [
+                        'role' => $current->role->value,
+                        'joined_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+
+                $current->update(['accepted_at' => now()]);
+
+                return $locked;
+            },
+        );
+    }
+
+    /**
+     * O link que o convidado abre. A rota web `GET /invitations/{token}` entra
+     * na Sessão 3.2, depois da ponte de autenticação web.
+     */
+    private function invitationUrl(string $token): string
+    {
+        return url('/invitations/'.$token);
+    }
+
+    /**
      * Executa a operação sob transação, com a linha da organização travada, e
      * confere o invariante do Owner antes do commit.
      *
-     * @param  Closure(Organization): void  $operation
+     * @template TResult
+     *
+     * @param  Closure(Organization): TResult  $operation
+     * @return TResult
      */
-    private function withLockedOrganization(Organization $organization, Closure $operation): void
+    private function withLockedOrganization(Organization $organization, Closure $operation): mixed
     {
-        DB::transaction(function () use ($organization, $operation): void {
+        return DB::transaction(function () use ($organization, $operation): mixed {
             $locked = Organization::query()
                 ->whereKey($organization->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $operation($locked);
+            $result = $operation($locked);
 
             $this->assertExactlyOneOwner($locked);
+
+            return $result;
         });
     }
 

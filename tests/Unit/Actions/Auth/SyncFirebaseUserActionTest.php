@@ -96,4 +96,24 @@ class SyncFirebaseUserActionTest extends TestCase
         $this->assertSame($user->id, $synced->id);
         $this->assertCount(0, $synced->organizations()->get());
     }
+
+    /**
+     * `email_verified_at` espelha a claim do token mais recente: o aceite de
+     * convite confia nele para provar a posse do e-mail (SAD 20.4).
+     */
+    public function test_email_verified_at_follows_the_latest_claim(): void
+    {
+        $action = app(SyncFirebaseUserAction::class);
+
+        $user = $action->handle($this->claims());
+        $this->assertTrue($user->hasVerifiedEmail());
+
+        // Troca para um e-mail ainda não verificado: a verificação anterior
+        // não pode sobreviver.
+        $user = $action->handle($this->claims(['email' => 'other@tinyailab.test', 'email_verified' => false]));
+        $this->assertFalse($user->hasVerifiedEmail());
+
+        $user = $action->handle($this->claims(['email' => 'other@tinyailab.test']));
+        $this->assertTrue($user->hasVerifiedEmail());
+    }
 }

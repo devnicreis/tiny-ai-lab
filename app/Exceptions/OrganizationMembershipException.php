@@ -20,7 +20,7 @@ use RuntimeException;
 abstract class OrganizationMembershipException extends RuntimeException
 {
     public function __construct(
-        public readonly int $organizationId,
+        public readonly ?int $organizationId,
         string $message,
     ) {
         parent::__construct($message);
@@ -36,7 +36,10 @@ abstract class OrganizationMembershipException extends RuntimeException
     /**
      * Contexto anexado automaticamente pelo Laravel ao reportar a exception.
      *
-     * @return array<string, int|string>
+     * `organization_id` é nulo apenas quando a organização não pôde ser
+     * identificada — um token de convite inexistente, por exemplo.
+     *
+     * @return array<string, int|string|null>
      */
     public function context(): array
     {

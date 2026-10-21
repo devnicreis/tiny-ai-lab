@@ -37,11 +37,22 @@ class SyncFirebaseUserAction
         $user = User::firstOrNew(['firebase_uid' => $uid]);
         $isNewUser = ! $user->exists;
 
+        $emailChanged = $user->exists && $user->email !== $email;
+
         $user->email = $email;
         $user->name = is_string($name) && $name !== '' ? $name : Str::before($email, '@');
 
-        if (($claims['email_verified'] ?? false) && $user->email_verified_at === null) {
-            $user->email_verified_at = now();
+        // `email_verified_at` espelha a claim `email_verified` do token mais
+        // recente, nos dois sentidos. O aceite de convite confia nela para
+        // provar a posse do e-mail convidado: um valor antigo que sobrevivesse
+        // a uma troca de e-mail para um endereço não verificado permitiria
+        // sequestrar convites alheios.
+        if (($claims['email_verified'] ?? false) === true) {
+            if ($user->email_verified_at === null || $emailChanged) {
+                $user->email_verified_at = now();
+            }
+        } else {
+            $user->email_verified_at = null;
         }
 
         // A organização Personal só nasce para quem está sendo criado agora

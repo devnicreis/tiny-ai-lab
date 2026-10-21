@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExecutionController;
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
@@ -24,6 +25,11 @@ Route::middleware('auth.firebase')->group(function () {
     // que informa ao cliente quais organizações existem e qual está ativa —
     // exigir contexto aqui tornaria impossível descobri-lo (SAD 20.5).
     Route::get('/auth/me', [AuthController::class, 'me']);
+
+    // Também fora de `organization`: quem aceita um convite ainda não é
+    // membro da organização de destino. A rota web `GET /invitations/{token}`
+    // entra na Sessão 3.2, depois da ponte de autenticação web.
+    Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept']);
 });
 
 /*

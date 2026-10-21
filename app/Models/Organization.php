@@ -46,6 +46,11 @@ class Organization extends Model
         return $this->hasMany(Project::class);
     }
 
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(OrganizationInvitation::class);
+    }
+
     public function executions(): HasManyThrough
     {
         return $this->hasManyThrough(
