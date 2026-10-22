@@ -85,6 +85,15 @@ class OrganizationPolicy
     }
 
     /**
+     * Sair da organização: qualquer membro que não seja o Owner (SAD 20.4,
+     * invariante 5).
+     */
+    public function leave(User $user, Organization $organization): bool
+    {
+        return $this->roleOf($user, $organization)?->canLeave() ?? false;
+    }
+
+    /**
      * Alterar papéis entre `admin` e `member`.
      */
     public function assignRoles(User $user, Organization $organization): bool
