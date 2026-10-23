@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, onIdTokenChanged } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, onIdTokenChanged, signInWithPopup } from 'firebase/auth';
 
 /**
  * Cliente Firebase do navegador.
@@ -44,3 +44,50 @@ export async function currentIdToken() {
 
     return window.__FIREBASE_TOKEN__;
 }
+
+/**
+ * Login via Google, ponte para a sessão Laravel (Sessão 3.1).
+ *
+ * O ID Token nunca autentica rotas web diretamente — navegação de browser não
+ * envia `Authorization: Bearer`. Ele é trocado, uma única vez, por uma sessão
+ * Laravel convencional em POST /login/firebase; dali em diante a identidade
+ * da requisição vem do cookie de sessão, não do token.
+ *
+ * @returns {Promise<string>} a URL para onde o chamador deve redirecionar
+ */
+export async function signInWithGoogle() {
+    if (!firebaseAuth) {
+        throw new Error('Firebase is not configured.');
+    }
+
+    const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+    const token = await credential.user.getIdToken();
+
+    window.__FIREBASE_TOKEN__ = token;
+
+    const csrfToken = document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute('content');
+
+    const response = await fetch('/login/firebase', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': csrfToken ?? '',
+        },
+        body: JSON.stringify({ token }),
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok || !payload.success) {
+        throw new Error(payload.error ?? 'Sign-in failed.');
+    }
+
+    return payload.redirect;
+}
+
+// Exposto em `window`: a tela de login (resources/views/auth/login.blade.php)
+// dispara o fluxo a partir de um handler Alpine inline, sem módulo próprio.
+window.signInWithGoogle = signInWithGoogle;

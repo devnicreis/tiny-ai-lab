@@ -5,6 +5,28 @@ declare(strict_types=1);
 return [
     /*
      * ------------------------------------------------------------------------
+     * Public Web SDK config (Sessão 3.1)
+     * ------------------------------------------------------------------------
+     *
+     * Injetado no Blade via `window.__FIREBASE_CONFIG__`
+     * (resources/views/layouts/app.blade.php). Apenas os quatro campos que o
+     * SDK do navegador precisa para inicializar — nunca a Service Account,
+     * que fica exclusivamente em `credentials`, acima.
+     *
+     * Reaproveita as mesmas variáveis `VITE_FIREBASE_*` que já alimentam
+     * resources/js/firebase.js pelo bundle: são públicas por natureza, e
+     * duplicá-las com outro nome só criaria duas fontes de verdade.
+     */
+
+    'public' => [
+        'apiKey' => env('VITE_FIREBASE_API_KEY'),
+        'authDomain' => env('VITE_FIREBASE_AUTH_DOMAIN'),
+        'projectId' => env('VITE_FIREBASE_PROJECT_ID'),
+        'appId' => env('VITE_FIREBASE_APP_ID'),
+    ],
+
+    /*
+     * ------------------------------------------------------------------------
      * Default Firebase project
      * ------------------------------------------------------------------------
      */

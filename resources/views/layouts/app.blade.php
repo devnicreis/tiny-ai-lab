@@ -16,6 +16,7 @@
          tokens do Firebase. --}}
     <script>
         window.__FIREBASE_TOKEN__ = '';
+        window.__FIREBASE_CONFIG__ = @json(config('firebase.public'));
     </script>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
