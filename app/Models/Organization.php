@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Organization extends Model
 {
@@ -120,5 +121,13 @@ class Organization extends Model
         return $query->whereHas('users', function (Builder $query) use ($userId) {
             $query->whereKey($userId);
         });
+    }
+
+    /**
+     * Até duas iniciais do nome, para o avatar textual da interface.
+     */
+    public function initials(): string
+    {
+        return mb_substr(Str::initials($this->name, true), 0, 2);
     }
 }

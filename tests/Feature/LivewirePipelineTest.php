@@ -249,7 +249,7 @@ class LivewirePipelineTest extends TestCase
         $this->actingAs($user)->get('/briefing')
             ->assertOk()
             ->assertSee('Novo Briefing')
-            ->assertSee('Tiny AI Lab');
+            ->assertSee('<title>Arkion</title>', false);
     }
 
     public function test_result_page_renders_status_and_lazy_result_for_the_owner(): void

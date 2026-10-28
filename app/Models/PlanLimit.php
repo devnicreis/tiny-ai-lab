@@ -7,6 +7,17 @@ use Illuminate\Support\Facades\Cache;
 
 class PlanLimit extends Model
 {
+    /**
+     * Action que guarda o teto mensal de créditos de um plano, e não um custo.
+     *
+     * Os créditos mensais de cada plano comercial são [A DEFINIR] (SAD 12.6):
+     * enquanto nenhuma linha `(plan, monthly_credit_limit)` existir, a interface
+     * mostra só o consumo, sem denominador. As linhas legadas `total_credits`
+     * descrevem os planos `free | pro | enterprise`, que nenhuma organização
+     * usa, e não são lidas aqui.
+     */
+    public const MONTHLY_CREDIT_LIMIT_ACTION = 'monthly_credit_limit';
+
     protected $fillable = [
         'plan',
         'action',
@@ -28,6 +39,27 @@ class PlanLimit extends Model
             "plan_limits:{$action}",
             now()->addMinutes(60),
             fn () => static::where('action', $action)->value('credits')
+        );
+    }
+
+    /**
+     * Teto mensal de créditos do plano, ou `null` quando não há um definido.
+     *
+     * `null` cobre dois casos que a interface trata igual — linha ausente e
+     * `credits = null` (ilimitado, SAD 12.15): não há denominador para exibir.
+     * Escopado por plano desde o início, sob chave própria (CLAUDE.md regra 9).
+     */
+    public static function monthlyCreditLimit(string $plan): ?int
+    {
+        $action = self::MONTHLY_CREDIT_LIMIT_ACTION;
+
+        return Cache::remember(
+            "plan_limits:{$plan}:{$action}",
+            now()->addMinutes(60),
+            fn () => static::query()
+                ->where('plan', $plan)
+                ->where('action', $action)
+                ->value('credits')
         );
     }
 

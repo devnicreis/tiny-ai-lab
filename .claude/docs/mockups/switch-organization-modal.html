@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Switch Organization Modal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            newsreader: ['Newsreader', 'serif'],
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-50 dark:bg-[#121214] text-gray-500 dark:text-[#f4f4f6]/60 font-sans antialiased min-h-screen flex flex-col items-center justify-center transition-colors duration-300">
+
+  <!-- Switch Organization Modal -->
+  <div id="switch-organization-modal" class="fixed inset-0 z-[100] hidden items-center justify-center opacity-0 transition-opacity duration-300">
+    <div class="absolute inset-0 bg-gray-900/40 dark:bg-[#121214]/80 backdrop-blur-sm modal-overlay transition-colors"></div>
+    <div class="relative bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-[#6b4e3a]/30 rounded-2xl shadow-xl w-[90%] max-w-[480px] transform scale-95 transition-all duration-300 flex flex-col">
+      
+      <!-- Header -->
+      <div class="p-5 border-b border-gray-200 dark:border-[#6b4e3a]/30 flex items-start justify-between">
+        <div>
+          <h3 class="font-newsreader text-2xl font-bold text-gray-900 dark:text-[#f4f4f6] tracking-tight">Switch Organization</h3>
+          <p class="text-sm text-gray-500 dark:text-[#f4f4f6]/60 mt-1 leading-relaxed">Select an active organization to switch your workspace.</p>
+        </div>
+        <button id="close-modal-btn" class="p-1.5 text-gray-400 hover:text-gray-700 dark:text-[#f4f4f6]/60 dark:hover:text-[#f4f4f6] bg-gray-50 hover:bg-gray-100 dark:bg-[#121214] dark:hover:bg-[#292524] rounded-lg transition-colors focus:outline-none shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <!-- Body: Organization List -->
+      <div class="p-3 space-y-1">
+        
+        <!-- Active Org -->
+        <button class="w-full text-left group flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-[#6b4e3a]/10 dark:hover:bg-[#6b4e3a]/20 border border-gray-200 dark:border-[#6b4e3a]/30 transition-colors focus:outline-none">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gray-200 text-gray-800 dark:bg-[#d2691e]/20 dark:text-[#d2691e] flex items-center justify-center font-bold text-sm shrink-0">
+              TC
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-semibold text-gray-900 dark:text-[#f4f4f6]">Tiny Creative</span>
+              <span class="text-[11px] text-gray-500 dark:text-[#f4f4f6]/60 mt-0.5">Owner • 4 brands</span>
+            </div>
+          </div>
+          <div class="shrink-0 flex items-center justify-center">
+            <span class="text-[10px] font-medium tracking-wide bg-gray-200 dark:bg-[#d2691e]/20 text-gray-600 dark:text-[#d2691e] px-2 py-0.5 rounded-full uppercase">Current</span>
+          </div>
+        </button>
+
+        <!-- Org 2 -->
+        <button class="w-full text-left group flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-[#6b4e3a]/20 border border-transparent transition-colors focus:outline-none">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-600 dark:bg-[#121214] dark:text-[#f4f4f6]/80 flex items-center justify-center font-semibold text-sm shrink-0 border border-gray-200 dark:border-[#292524]">
+              IG
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-medium text-gray-900 dark:text-[#f4f4f6]">Intersaberes Group</span>
+              <span class="text-[11px] text-gray-500 dark:text-[#f4f4f6]/60 mt-0.5">Member • 2 brands</span>
+            </div>
+          </div>
+          <div class="shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pr-1">
+            <svg class="w-4 h-4 text-gray-400 dark:text-[#f4f4f6]/60 group-hover:text-[#d2691e] dark:group-hover:text-[#d2691e] transition-colors" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+        </button>
+
+        <!-- Org 3 -->
+        <button class="w-full text-left group flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-[#6b4e3a]/20 border border-transparent transition-colors focus:outline-none">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-600 dark:bg-[#121214] dark:text-[#f4f4f6]/80 flex items-center justify-center font-semibold text-sm shrink-0 border border-gray-200 dark:border-[#292524]">
+              PW
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-medium text-gray-900 dark:text-[#f4f4f6]">Personal Workspace</span>
+              <span class="text-[11px] text-gray-500 dark:text-[#f4f4f6]/60 mt-0.5">Owner • 1 brand</span>
+            </div>
+          </div>
+          <div class="shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pr-1">
+            <svg class="w-4 h-4 text-gray-400 dark:text-[#f4f4f6]/60 group-hover:text-[#d2691e] dark:group-hover:text-[#d2691e] transition-colors" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+        </button>
+
+      </div>
+
+      <!-- Footer Actions -->
+      <div class="p-4 border-t border-gray-200 dark:border-[#6b4e3a]/30 flex items-center justify-between rounded-b-2xl bg-gray-50/50 dark:bg-[#121214]/50">
+        <a href="/settings/organizations" class="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-[#f4f4f6]/80 hover:text-[#d2691e] dark:hover:text-[#d2691e] transition-colors group">
+          Manage all organizations
+          <svg class="w-3 h-3 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#" class="inline-flex items-center text-xs font-semibold text-gray-500 dark:text-[#f4f4f6]/60 hover:text-[#d2691e] dark:hover:text-[#d2691e] transition-colors">
+          + Create new organization
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const switchModal = document.getElementById('switch-organization-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const modalOverlayBg = switchModal.querySelector('.modal-overlay');
+
+    function openSwitchModal() {
+      switchModal.classList.remove('hidden');
+      switchModal.classList.add('flex');
+      
+      // Delay for CSS transition
+      setTimeout(() => {
+        switchModal.classList.remove('opacity-0');
+        switchModal.classList.add('opacity-100');
+        switchModal.querySelector('div.relative').classList.remove('scale-95');
+        switchModal.querySelector('div.relative').classList.add('scale-100');
+      }, 50);
+    }
+
+    function closeSwitchModal() {
+      switchModal.classList.remove('opacity-100');
+      switchModal.classList.add('opacity-0');
+      switchModal.querySelector('div.relative').classList.remove('scale-100');
+      switchModal.querySelector('div.relative').classList.add('scale-95');
+      
+      setTimeout(() => {
+        switchModal.classList.add('hidden');
+        switchModal.classList.remove('flex');
+      }, 300);
+    }
+
+    // Open automatically on load for demonstration
+    window.addEventListener('DOMContentLoaded', () => {
+      openSwitchModal();
+    });
+
+    closeModalBtn.addEventListener('click', closeSwitchModal);
+    modalOverlayBg.addEventListener('click', closeSwitchModal);
+  </script>
+</body>
+</html>

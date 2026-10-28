@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\OrganizationRole;
 use App\Models\User;
 use App\Services\FirebaseService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -82,7 +83,14 @@ class WebAuthTest extends TestCase
         $user = User::where('firebase_uid', self::FIREBASE_UID)->firstOrFail();
 
         $this->assertSame(1, $user->organizations()->count());
-        $this->assertSame('Personal', $user->organizations()->first()->name);
+
+        $personal = $user->organizations()->first();
+
+        $this->assertSame('Personal', $personal->name);
+
+        // A organização Personal do primeiro login tem o usuário como Owner
+        // (SAD 20.3, ADR-010).
+        $this->assertSame(OrganizationRole::Owner, $user->roleIn($personal));
     }
 
     public function test_organizations_routes_accessible_without_active_org(): void

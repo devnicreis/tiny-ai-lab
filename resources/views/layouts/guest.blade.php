@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,13 +17,13 @@
     <div class="w-full max-w-md rounded-xl border border-[#292524] bg-app-card p-8 shadow-lg">
         <div class="mb-6 flex items-center justify-center gap-2">
             <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-500 text-sm font-bold text-white">T</div>
-            <span class="text-lg font-semibold text-[#FAFAFA]">Tiny AI Lab</span>
+            <span class="text-lg font-semibold text-[#FAFAFA]">Arkion</span>
         </div>
 
         {{ $slot ?? '' }}
         @yield('content')
     </div>
 
-    @livewireScripts
+    @livewireScriptConfig
 </body>
 </html>

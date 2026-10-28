@@ -10,6 +10,9 @@
     --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
     --font-serif: 'Newsreader', ui-serif, Georgia, serif;
+    /* Mesmo Newsreader de `font-serif`, com o nome usado pelos mockups e pelo
+       UI-KIT (`font-newsreader`). Não é uma terceira família (CLAUDE.md regra 21). */
+    --font-newsreader: 'Newsreader', ui-serif, Georgia, serif;
 
     --color-primary: #d2691e;
     --color-secondary: #9e6136;
@@ -22,4 +25,167 @@
 
 [x-cloak] {
     display: none !important;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Shell autenticado — Sidebar e Header (Sessão 3.2)
+|--------------------------------------------------------------------------
+|
+| Transcrição do <style> de .claude/docs/mockups/sidebar_v3.html e
+| header_3.0.html. São as regras que dependem de breakpoint ou de estado
+| (aberto/colapsado) e não cabem em utilitários. O estado é do Alpine
+| (resources/js/shell.js), que apenas alterna as classes daqui.
+|
+*/
+
+@media (min-width: 768px) {
+    .sidebar-transition {
+        transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .sidebar-open { width: 280px; }
+    .sidebar-collapsed { width: 80px; }
+
+    .sidebar-collapsed .sidebar-text-flex {
+        display: none !important;
+        opacity: 0;
+    }
+
+    .sidebar-collapsed #toggle-btn {
+        position: relative;
+        margin-top: 1.5rem;
+        margin-left: auto;
+        margin-right: auto;
+        right: auto;
+        top: auto;
+    }
+    .sidebar-open #toggle-btn {
+        position: absolute;
+        right: 1rem;
+        top: 1rem;
+    }
+
+    .sidebar-collapsed .logo-full { display: none !important; }
+    .sidebar-open .logo-icon { display: none !important; }
+
+    .sidebar-collapsed .icon-open { display: block; }
+    .sidebar-collapsed .icon-close { display: none; }
+    .sidebar-open .icon-open { display: none; }
+    .sidebar-open .icon-close { display: block; }
+
+    .sidebar-collapsed nav a,
+    .sidebar-collapsed .bottom-menus a,
+    .sidebar-collapsed .bottom-menus button {
+        justify-content: center;
+    }
+
+    .credits-circle-container { display: none; }
+    .sidebar-collapsed .credits-circle-container { display: flex; }
+
+    #help-submenu {
+        opacity: 0;
+        visibility: hidden;
+        transform: translateX(10px);
+        transition: opacity 0.3s, visibility 0.3s, transform 0.3s, bottom 0.1s, left 0.1s;
+    }
+    #help-submenu.desktop-open {
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: translateX(0) !important;
+    }
+
+    #credits-tooltip {
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-50%) translateX(10px);
+        transition: opacity 0.3s, visibility 0.3s, transform 0.3s, top 0.1s, left 0.1s;
+    }
+    #credits-tooltip.desktop-open {
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: translateY(-50%) translateX(0) !important;
+    }
+}
+
+@media (max-width: 767px) {
+    .logo-icon { display: none !important; }
+    .logo-full { display: block !important; }
+
+    .sidebar-transition {
+        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #sidebar { width: 280px !important; }
+
+    #sidebar .sidebar-text-flex {
+        display: flex !important;
+        opacity: 1 !important;
+    }
+
+    #help-submenu {
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(100%);
+    }
+    #help-submenu.mobile-open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    .credits-circle-container { display: none !important; }
+}
+
+.sidebar-collapsed #referral-btn-container { display: none !important; }
+
+.anim-close {
+    animation: sidebar-slide-in-from-right 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.anim-open {
+    animation: sidebar-slide-in-from-left 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes sidebar-slide-in-from-right {
+    0% { opacity: 0; transform: translateX(40px); }
+    40% { opacity: 0; transform: translateX(40px); }
+    100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes sidebar-slide-in-from-left {
+    0% { opacity: 0; transform: translateX(-40px); }
+    40% { opacity: 0; transform: translateX(-40px); }
+    100% { opacity: 1; transform: translateX(0); }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #e5e7eb;
+    border-radius: 4px;
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #27272a;
+}
+
+#menu-slider {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.show-help #menu-slider {
+    transform: translateX(-50%);
+}
+
+#search-container {
+    width: 2.25rem;
+}
+#search-container.search-expanded {
+    width: 200px;
+}
+@media (min-width: 640px) {
+    #search-container.search-expanded {
+        width: 320px;
+    }
 }

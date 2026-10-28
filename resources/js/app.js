@@ -1,13 +1,15 @@
 import './firebase';
 import './echo';
 
-import Alpine from 'alpinejs';
-import focus from '@alpinejs/focus';
-import intersect from '@alpinejs/intersect';
+// O Livewire 3 traz o próprio Alpine — com focus, intersect, collapse e os
+// demais plugins oficiais. Importar e iniciar um segundo Alpine faria as duas
+// instâncias inicializarem o mesmo DOM: cada clique alternaria um menu duas
+// vezes. Por isso o Alpine vem do bundle ESM do Livewire, e os layouts usam
+// @livewireScriptConfig em vez de @livewireScripts.
+import { Livewire, Alpine } from '../../vendor/livewire/livewire/dist/livewire.esm';
 
-Alpine.plugin(focus);
-Alpine.plugin(intersect);
+import registerShell from './shell';
 
-window.Alpine = Alpine;
+registerShell(Alpine);
 
-Alpine.start();
+Livewire.start();

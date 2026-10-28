@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Cashier\Billable;
 
 class User extends Authenticatable
@@ -78,5 +79,13 @@ class User extends Authenticatable
     public function belongsToOrganization(Organization $organization): bool
     {
         return $organization->hasMember($this);
+    }
+
+    /**
+     * Até duas iniciais do nome, para o avatar textual da interface.
+     */
+    public function initials(): string
+    {
+        return mb_substr(Str::initials($this->name, true), 0, 2);
     }
 }

@@ -4647,6 +4647,8 @@ fontFamily: {
 
 ---
 
+`font-newsreader` é um alias de `font-serif`, com a mesma família Newsreader, declarado no `@theme` de `resources/css/app.css` (`--font-newsreader`) porque os mockups e o UI-KIT usam esse nome. Não é uma terceira família.
+
 ## Regra de Aplicação
 
 ```html
@@ -4781,15 +4783,15 @@ Características:
 - colapsável;
 - versão mobile;
 - navegação principal;
-- seletor de Brand;
 - informações de créditos.
+
+> 🔁 **SUPERSEDED (Sessão 3.2, mockup `sidebar_v3.html`):** o seletor de Brand saiu da Sidebar e passou ao menu da marca no Header (`org-dropdown-container`, Seção 10.10). A troca de Brand não é mais funcionalidade da Sidebar.
 
 ---
 
 ## Funcionalidades
 
 - navegação;
-- troca de Brand;
 - acesso ao perfil;
 - ajuda;
 - configurações;
@@ -4806,15 +4808,23 @@ Os seguintes IDs são considerados parte da arquitetura da interface.
 |----|------------------|
 | sidebar | Container principal |
 | toggle-btn | Colapsar Sidebar |
+| mobile-menu-btn | Abrir a Sidebar no mobile |
+| mobile-close-btn | Fechar a Sidebar no mobile |
 | mobile-overlay | Overlay mobile |
-| client-dropdown-container | Dropdown de Brand |
-| client-dropdown-btn | Botão da Brand |
+| credits-container | Indicador de créditos |
+| credits-tooltip | Tooltip das três carteiras |
+| referral-btn-container / referral-open-btn | Botão de indicação (atrás de flag, Seção 10.16) |
 | theme-toggle-btn | Alternância de tema |
 | help-btn | Menu Help |
 | help-submenu | Submenu de ajuda |
+| close-help-btn | Fechar o submenu de ajuda no mobile |
 | logout-btn | Logout |
 
 Esses identificadores devem permanecer estáveis para manter compatibilidade entre componentes.
+
+> 🔁 **SUPERSEDED (Sessão 3.2):** `client-dropdown-container` e `client-dropdown-btn` deixaram de existir com o `sidebar_v3.html`. O dropdown de Brand é hoje o `org-dropdown-container` do Header (Seção 10.10). O `theme-toggle-btn` não aparece no mockup v3, mas foi mantido na Sidebar por ser o único controle autorizado de tema (Seção 10.14).
+
+Implementação: `app/Livewire/Sidebar.php` + `resources/views/livewire/sidebar.blade.php`; estado visual no Alpine `appSidebar` (`resources/js/shell.js`) e CSS de breakpoint em `resources/css/app.css`.
 
 ---
 
@@ -4826,13 +4836,22 @@ O Header permanece fixo na parte superior da aplicação.
 
 ## Componentes
 
-Da esquerda para direita:
+Da esquerda para direita (mockup `header_3.0.html`):
 
-- busca global;
+- menu da marca — organização ativa, Brand ativa, lista de Brands da organização, "Add new Brand" e "Switch Organization";
 - botão "Ask AI";
 - notificações;
 - seletor de idioma;
-- perfil do usuário.
+- busca global;
+- perfil do usuário (com o mesmo indicador de créditos da Sidebar).
+
+### Menu da marca
+
+- O botão mostra a organização ativa (rótulo superior) e a Brand ativa (Newsreader).
+- A lista traz as Brands da **organização ativa**, em ordem alfabética. Sub-brands levam a legenda "Sub-brand of X"; não há recuo, porque a profundidade da hierarquia é **[A DEFINIR]** (Seção 19.2).
+- "Add new Brand" só é renderizado quando `Gate::allows('create', Project::class)` — Owner e Admin. Member não o vê. Como a tela de criação ainda não existe, o item aparece desabilitado ("Coming soon").
+- Trocar de Brand é `App\Services\BrandContext::set()`: `ProjectPolicy@view` **e** pertencimento à organização ativa. Depois da troca, o Header dispara `brand-switched` com `projectId` (Apêndice M.8).
+- "Switch Organization" aparece **sempre**, inclusive com uma só organização, e abre o `SwitchOrganizationModal` (Seção 20.3).
 
 ---
 
@@ -4840,13 +4859,24 @@ Da esquerda para direita:
 
 | ID | Função |
 |----|--------|
+| org-dropdown-container / org-dropdown-btn / org-dropdown-menu | Menu da marca (organização e Brand ativas) |
 | btn-ask-ai | Botão principal de IA |
-| notif-dropdown-container | Dropdown notificações |
-| lang-dropdown-container | Idiomas |
-| search-container | Busca global |
-| profile-dropdown-container | Perfil |
+| notif-dropdown-container / notif-btn / notif-menu | Dropdown notificações |
+| lang-dropdown-container / lang-btn / lang-menu | Idiomas |
+| search-container / search-input / filter-btn / filter-menu | Busca global e filtros |
+| profile-dropdown-container / profile-btn / profile-menu | Perfil |
 
 Esses IDs não devem ser alterados.
+
+Implementação: `app/Livewire/Header.php` + `resources/views/livewire/header.blade.php`; estado visual no Alpine `appHeader` (`resources/js/shell.js`).
+
+Estado dos itens na Sessão 3.2:
+
+- **Busca:** só o campo e os filtros, sem backend; nenhuma requisição é feita.
+- **Ask AI:** desabilitado, tooltip "Coming soon".
+- **Notificações:** a aba Activity lista as `notifications` do usuário (tabela padrão do Laravel, Seção 4.9), com estado vazio; "What's New" tem só estado vazio.
+- **Idioma:** o menu mostra English e Português, mas só English é selecionável — ver pendência de i18n na Seção 10.16.
+- Itens cujas páginas não existem (Profile, Settings, Help and Support, "Show activity log", configurações da organização) ficam desabilitados, sem link morto.
 
 ---
 
@@ -4903,7 +4933,7 @@ Brand Core
 
 Brand Assets
 
-Research and Strategy
+Research and strategy
 ```
 
 ---
@@ -4911,14 +4941,18 @@ Research and Strategy
 ## GENERATE
 
 ```
-Create Article
+Generate Article
 
-Create Post
+Generate Post
 
-Create Ad
+Generate Ad
 
 Library
 ```
+
+> 🔁 **SUPERSEDED (Sessão 3.2, mockup `sidebar_v3.html`):** os rótulos eram "Create Article", "Create Post" e "Create Ad". Os `pipeline_type` continuam `create_article`, `create_post` e `create_ad` — a mudança é só de rótulo.
+
+Na Sessão 3.2 apenas **Dashboard** tem página. Os demais itens ficam desabilitados ("Coming soon"), sem `href`.
 
 ---
 
@@ -4927,15 +4961,11 @@ Library
 A parte inferior da Sidebar contém:
 
 ```
-Brand Switcher
+Credits Used  (barra; tooltip com as três carteiras)
 
 ↓
 
-Credits Used
-
-↓
-
-Buy AI Credits
+Share Arkion with friends  (somente com a flag de indicação, Seção 10.16)
 
 ↓
 
@@ -4957,6 +4987,8 @@ Settings
 
 Log out
 ```
+
+> 🔁 **SUPERSEDED (Sessão 3.2):** o rodapé começava pelo Brand Switcher, que foi para o Header (Seção 10.10), e tinha "Buy AI Credits" como item próprio. No `sidebar_v3.html` a compra é o texto de hover do próprio indicador de créditos.
 
 ---
 
@@ -4980,24 +5012,31 @@ Report a Bug / Suggest
 
 ## Créditos
 
-O indicador de créditos da Sidebar apresenta os **dois saldos** definidos na Seção 12:
+O indicador de créditos (Sidebar e menu do perfil) mostra o **consumo do plano da organização ativa** no mês:
 
 ```
-Plan credits:      850 / 1000
-Purchased credits: 240
+120/1000 credits used
 ```
 
-Este componente representa apenas a visualização do consumo.
+| Estado | Barra | Texto | Hover |
+|--------|-------|-------|-------|
+| Organização sem plano (`plan = null`) | não | `No active plan` | Owner: **Subscribe**; Admin e Member: **Ask your organization owner** |
+| Plano com teto mensal | `plan_credits_used_this_month / teto` | `N/M credits used` | **Buy AI credits** |
+| Plano sem teto mensal (linha ausente ou `credits = null`) | não | `N credits used` | **Buy AI credits** |
 
-O cálculo é realizado no backend.
+- O numerador é `organizations.plan_credits_used_this_month`. **Nunca** a soma das carteiras (CLAUDE.md regra 27).
+- O denominador é a linha `(plan, monthly_credit_limit)` de `plan_limits`, lida por `PlanLimit::monthlyCreditLimit()` (cacheada sob `plan_limits:{plan}:monthly_credit_limit`). Os créditos mensais de cada plano são **[A DEFINIR]** (Seção 12.6) e nenhuma linha é semeada: até a decisão, todo plano cai no estado "sem teto". As linhas legadas `total_credits` (`free | pro | enterprise`) não são lidas.
+- O tooltip mostra as **três carteiras separadas**: `Plan credits` (`organizations.plan_credits_balance`), `Purchased credits (organization)` (`organizations.purchased_credits_balance`) e `Personal credits` (`users.purchased_credits_balance` do próprio usuário).
+- A capacidade de assinar chega pronta do backend (`OrganizationPolicy@manageBilling`); a view não deduz nada do papel (Seção 12.12).
+- Resumo montado por `App\Services\Credits\CreditSummaryService` (DTO `CreditSummary`); a view é `resources/views/components/credit-usage.blade.php`.
 
-Nunca somar os dois saldos em um único número exibido — a distinção entre crédito que expira e crédito que não expira é informação relevante ao usuário.
+> 🔁 **SUPERSEDED (Sessão 3.2):** a versão anterior exibia "os dois saldos" (`Plan credits: 850 / 1000` e `Purchased credits: 240`), anterior ao modelo de três carteiras e ao estado sem plano.
 
 ---
 
 ## Buy AI Credits
 
-CTA permanente na Sidebar.
+Texto de hover do indicador de créditos (mockup `sidebar_v3.html`). Na Sessão 3.2 o controle está **desabilitado**, com tooltip "Coming soon": a infraestrutura de pagamento é **[A DEFINIR]** (Seção 12.13) e nenhuma compra é implementada. Sem plano, o hover não oferece compra (Seção 12.12).
 
 Responsável por iniciar o fluxo de compra de créditos avulsos, que credita `purchased_credits_balance` (Seção 12.9).
 
@@ -5009,7 +5048,22 @@ O CTA é visível a todos os papéis, porque todo membro pode comprar créditos 
 
 A arquitetura estabelece um mapeamento direto entre os arquivos HTML de referência e os componentes Laravel.
 
-Os HTMLs de referência foram substituídos pelas versões do novo Design System. As versões antigas (`sidebar.html`, `header.html`, `brand_core.html`) estão obsoletas e não devem mais ser consultadas.
+## Mockups canônicos
+
+Todos os mockups vigentes ficam em **`.claude/docs/mockups/`** e são a fonte de verdade visual dos componentes que descrevem. Classes Tailwind e IDs funcionais são copiados deles; o JavaScript solto é reescrito em Alpine.
+
+| Mockup | Componente |
+|--------|-----------|
+| `sidebar_v3.html` | Sidebar |
+| `header_3.0.html` | Header (inclui o menu da marca e o menu do perfil) |
+| `switch-organization-modal.html` | SwitchOrganizationModal |
+| `modal_referral.html` | ReferralModal (atrás de flag, Seção 10.16) |
+| `brand_core_v2.html` | Brand Core |
+| `personal_core.html` | Personal Core — **[A DEFINIR]**: ainda sem componente nem seção própria |
+
+**Superados — não consultar:** `sidebar.html`, `header.html`, `brand_core.html`, `sidebar_2_0.html`, `header_2_0.html` e qualquer outro `*_2_0.html`. `logout-modal.html` e `dashboard.html` não existem entre os mockups vigentes.
+
+O `<title>` dos mockups ainda diz "Tiny AI Lab"; a aplicação usa "Arkion".
 
 ---
 
@@ -5018,23 +5072,23 @@ Os HTMLs de referência foram substituídos pelas versões do novo Design System
 HTML
 
 ```
-sidebar_2_0.html
+sidebar_v3.html
 ```
 
 Implementação
 
 ```
-resources/views/components/sidebar.blade.php
-
 app/Livewire/Sidebar.php
+
+resources/views/livewire/sidebar.blade.php
 ```
 
 Responsável por:
 
 - navegação;
-- Brand ativa (incluindo sub-brands, Seção 19);
 - créditos;
-- menus.
+- menus;
+- tema.
 
 ---
 
@@ -5043,23 +5097,59 @@ Responsável por:
 HTML
 
 ```
-header_2_0.html
+header_3.0.html
 ```
 
 Implementação
 
 ```
-resources/views/components/header.blade.php
-
 app/Livewire/Header.php
+
+resources/views/livewire/header.blade.php
 ```
 
 Responsabilidades:
 
+- organização e Brand ativas, lista de Brands e troca de Brand (o antigo `BrandSwitcher`);
 - notificações;
 - perfil;
 - idioma;
 - busca.
+
+---
+
+## Switch Organization Modal
+
+```
+switch-organization-modal.html
+```
+
+↓
+
+```
+app/Livewire/SwitchOrganizationModal.php
+
+resources/views/livewire/switch-organization-modal.blade.php
+resources/views/livewire/partials/organization-list.blade.php
+```
+
+O mesmo componente, com `inline`, é o conteúdo de `/organizations/select` (Seção 20.3).
+
+---
+
+## Referral Modal
+
+```
+modal_referral.html
+```
+
+↓
+
+```
+app/Livewire/ReferralModal.php
+
+resources/views/livewire/referral-modal.blade.php
+```
 
 ---
 
@@ -5082,7 +5172,7 @@ app/Livewire/Dashboard.php
 ## Logout Modal
 
 ```
-logout-modal.html
+(sem mockup vigente — segue o desenho do switch-organization-modal.html)
 ```
 
 ↓
@@ -5250,10 +5340,12 @@ Nunca criar folhas de estilo, componentes ou variantes separadas para o tema esc
 Dropdown:
 
 ```
-client-dropdown-container
+org-dropdown-container   (Header)
 ```
 
 Seleciona a Brand ativa.
+
+> 🔁 **SUPERSEDED (Sessão 3.2):** o dropdown era o `client-dropdown-container` da Sidebar.
 
 ---
 
@@ -5261,7 +5353,7 @@ Seleciona a Brand ativa.
 
 O conceito de Multi-Brand constitui uma das bases arquiteturais do Arkion.
 
-Todo usuário trabalha dentro da **organização ativa**, composta por múltiplas Brands independentes. O `BrandSwitcher` lista apenas as Brands da organização ativa; a troca de organização é feita pelo seletor de organização, exibido apenas quando o usuário pertence a mais de uma (Seção 20.3).
+Todo usuário trabalha dentro da **organização ativa**, composta por múltiplas Brands independentes. O menu da marca do Header (o antigo `BrandSwitcher`) lista apenas as Brands da organização ativa; a troca de organização é feita pelo `SwitchOrganizationModal`, aberto pelo item "Switch Organization" do mesmo menu, que aparece **sempre** (Seção 20.3).
 
 Cada Brand possui seu próprio contexto de:
 
@@ -5285,7 +5377,9 @@ Portanto:
 
 **Estado da Brand ativa:** **[A DEFINIR]**
 
-O contexto de sessão tem duas variáveis, `active_organization_id` e `active_project_id`, e a segunda precisa pertencer à primeira em todo acesso (Seção 20.5). O mecanismo de persistência de ambas permanece **[A DEFINIR]**.
+O contexto de sessão tem duas variáveis, `active_organization_id` e `active_project_id`, e a segunda precisa pertencer à primeira em todo acesso (Seção 20.5).
+
+> ✅ **Definido na implementação (Sessões 3.0–3.2):** ambas vivem na sessão Laravel. `App\Services\OrganizationContext` é a autoridade sobre a organização ativa; `App\Services\BrandContext` (`scoped`), sobre a Brand ativa. `BrandContext::current()` procura a Brand **dentro da organização ativa** a cada leitura e descarta da sessão a que não pertencer; `resolve()` seleciona sozinha apenas a única Brand da organização; `set()` exige `ProjectPolicy@view` e pertencimento à organização ativa. Até a Sessão 3.2 a chave `active_project_id` só era limpa (na troca de organização), nunca lida. `IndexExecutionRequest` (API, sem sessão) continua com o fallback de `projects.is_active` da Seção 12.17.
 
 ---
 
@@ -5313,17 +5407,7 @@ Responsável por:
 - alterar Brand ativa;
 - atualizar contexto da aplicação.
 
-Implementação prevista:
-
-```
-app/Livewire/BrandSwitcher.php
-```
-
-View:
-
-```
-resources/views/livewire/brand-switcher.blade.php
-```
+> 🔁 **SUPERSEDED (Sessão 3.2, mockup `header_3.0.html`):** não existe componente `BrandSwitcher` separado. As quatro responsabilidades acima são do menu da marca do `Header` (`app/Livewire/Header.php`, Seção 10.10). Sub-brands aparecem em lista plana com a legenda "Sub-brand of X", não aninhadas (Seção 19.5).
 
 ---
 
@@ -5336,11 +5420,63 @@ Ao selecionar uma nova Brand:
 3. recarregar componentes Livewire;
 4. todas as consultas subsequentes passam a utilizar o novo `project_id`.
 
-A estratégia de propagação entre componentes permanece **[A DEFINIR]**.
+A propagação segue o Apêndice M.8: a sessão é a fonte de verdade e o Header dispara `brand-switched` (`projectId`) para os componentes dependentes. Nenhum componente escuta o evento ainda.
 
 ---
 
 > ⚠️ **Regra crítica:** A Brand ativa define todo o contexto funcional da aplicação. Nenhum componente, Controller, Query, Job ou Policy pode acessar dados sem aplicar o escopo da Brand ativa (`project_id`). Nunca assuma que `user_id` é suficiente para isolar informações.
+
+---
+
+# 10.16 Registro de Implementação — Shell (Sessão 3.2)
+
+Conversão de `sidebar_v3.html`, `header_3.0.html`, `switch-organization-modal.html` e `modal_referral.html` para Blade + Livewire. As classes Tailwind dos mockups foram mantidas como estão, por decisão da sessão; as divergências com o Design System ficam registradas aqui, **sem correção**, para decisão posterior.
+
+## Componentes
+
+`App\Livewire\Sidebar`, `Header`, `SwitchOrganizationModal`, `LogoutModal` e `ReferralModal`. Apresentação pura (Apêndice M): trocar de organização é `OrganizationContext::set()`; trocar de Brand é `BrandContext::set()`; créditos vêm de `CreditSummaryService`; "Add new Brand" e o CTA de assinatura dependem de `ProjectPolicy@create` e `OrganizationPolicy@manageBilling`. O JavaScript dos mockups virou Alpine (`resources/js/shell.js`), com as mesmas animações de opacidade e escala.
+
+O Alpine passou a vir do bundle ESM do Livewire (`resources/js/app.js`, `@livewireScriptConfig` nos layouts). Antes, `app.js` iniciava um segundo Alpine ao lado do que o Livewire 3 já injeta, e as duas instâncias inicializavam o mesmo DOM.
+
+## Cores dos mockups fora da paleta (Seção 10.4 / UI-KIT §2)
+
+Mantidas como estão. Várias são tokens **proibidos** pela Seção 10.5 e pela CLAUDE.md regra 26 — a decisão de mantê-las foi da sessão e precisa ser revista:
+
+| Cor | Onde | Observação |
+|-----|------|-----------|
+| `#A8A29E` | Sidebar e Header (texto muted no dark, em dezenas de elementos) | **Proibido** (Seção 10.5). O par oficial é `dark:text-[#9e6136]` ou `dark:text-[#f4f4f6]/60`. |
+| `#44403C` | Sidebar (borda do botão de indicação, anel do círculo de créditos), Header (anel do avatar) | **Proibido** (Seção 10.5). |
+| `#292524` | SwitchOrganizationModal (hover do fechar, borda das iniciais) | **Proibido** (Seção 10.5). |
+| `#554f49` | Indicador de créditos (hover da barra no dark) | **Proibido** (Seção 10.5). |
+| `rgba(255,85,0,0.3)` | Sombra de hover do botão de indicação | É `#FF5500`, a cor de marca **antiga** (CLAUDE.md regra 26). O botão só existe com a flag de indicação. |
+| `#27272a`, `#3f3f46`, `#18181b` | Trilho do círculo de créditos, scrollbar no dark, bordas de avatar/bandeira, divisor do Header, borda do ponto de notificação | Escala zinc, fora da paleta. |
+| `#78716C` | Hora das notificações, placeholder da busca no dark | Escala stone, fora da paleta. |
+| `#1c1a19` | Fundo do botão de indicação no dark | Fora da paleta. |
+| `#e5e7eb` | Scrollbar no light | Equivale a `gray-200` (escala neutra), mas está como hex. |
+| `bg-black/60`, `rgba(0,0,0,0.5)` | Overlay mobile, backdrop do modal de indicação, sombra do submenu de ajuda | Preto puro, fora dos pares documentados. |
+| `neutral-400/500/700/800`, `#1a1a1c`, `dark:bg-white`, `dark:text-white` | ReferralModal | Escala neutral e branco puro no dark, em vez de `#1c1c1c` / `#f4f4f6`. |
+| `#25D366`, `#0A66C2`, `blue-500` | Botões de compartilhamento do ReferralModal | Cores de marcas de terceiros (WhatsApp, LinkedIn) e azul do e-mail. |
+
+## Ícones fora da regra da Seção 10.7
+
+Também mantidos como no mockup: os ícones da navegação e do rodapé da Sidebar são `w-6 h-6` (a regra permite só `w-5 h-5` e `w-4 h-4`); setas, chevrons, menu, fechar e ícones dos modais usam `stroke-width="2"` ou `"2.5"` e `fill="none"` (a regra exige `0.3` e `currentColor`); "Add new Brand" usa `w-3 h-3`, o botão de indicação `w-3.5 h-3.5`, os ícones de compartilhamento `w-6 h-6`; o logo usa `w-8 h-8` e `w-36`, e o ícone de configurações da organização não declara `stroke`. O ícone do `theme-toggle-btn`, ausente do mockup, foi desenhado no padrão dos vizinhos (`w-6 h-6`, `stroke-width="0.3"`).
+
+## Ajustes de integração
+
+Os mockups foram desenhados isolados. Para coexistirem no mesmo shell: o `#mobile-menu-btn` passou de `z-40` para `z-50` (o Header, também `z-40` e posterior no DOM, o cobria) e o `#org-dropdown-container` ganhou `ml-12 md:ml-0`, para não ficar sob esse botão no mobile. A regra do mockup que mostrava o logo completo no mobile estava aninhada dentro de `@media (min-width: 768px)` e nunca se aplicava; em `app.css` ela está no bloco mobile. As bandeiras do seletor de idioma continuam vindo de `flagcdn.com`, como no mockup.
+
+## Dados de exemplo
+
+Nenhum dado fictício do mockup foi copiado. Marcas, organizações, usuário, notificações e créditos são reais ou têm estado vazio. O avatar de exemplo virou as iniciais do usuário (não existe coluna de avatar).
+
+## Pendências e divergências registradas
+
+- **Indicação — o mockup se contradiz e o programa não está decidido.** O botão da Sidebar promete "Get 100 credits each"; o modal, "30 free credits" (e "30 bonus credits" nas mensagens de compartilhamento, "60 credits earned" no rodapé). A implementação não exibe número algum. O programa precisa de decisão sobre: **formato e geração dos códigos**, **atribuição** (quem indicou, janela, primeiro ou último toque), **anti-fraude** (autoindicação, contas descartáveis, limites), **valor da recompensa** e **carteira de destino** — o modal diz "for both your friend and this organization", o que implicaria `organizations.purchased_credits_balance`, enquanto o indicado ainda nem tem organização além da Personal. Até lá: `config('arkion.features.referral')`, padrão `false`; com a flag desligada nem o botão nem o modal são renderizados; com ela ligada, o modal mostra estado vazio, sem backend. **[A DEFINIR]**.
+- **i18n.** O seletor de idioma mostra English e Português, mas só English é selecionável: a interface do cliente é em inglês (Seção 10.1.1) e não existe infraestrutura de tradução. Oferecer Português exige decisão de produto e i18n. **[A DEFINIR]**.
+- **Teto mensal de créditos.** A action `monthly_credit_limit` de `plan_limits` não tem linhas: os créditos mensais por plano são **[A DEFINIR]** (Seção 12.6). As linhas legadas `total_credits` descrevem planos que nenhuma organização usa.
+- **Notificações por usuário.** A aba Activity lê `notifications` pelo `notifiable` (o usuário), como a tabela padrão do Laravel exige. Notificações são endereçadas à pessoa, não são dado de domínio da Brand; a regra de escopo por organização e Brand (CLAUDE.md regra 10) não se aplica a elas. Nenhuma Notification class existe ainda.
+- **Páginas inexistentes.** Brand Core, Brand Assets, Research and strategy, Generate Article/Post/Ad, Library, Profile, Settings, Help and Support, Ask AI, "Add new Brand", configurações da organização, histórico de notificações, Subscribe e Buy AI credits ficam desabilitados ("Coming soon"). `/settings/organizations` existe como placeholder neutro.
+- **Personal Core.** `personal_core.html` está entre os mockups vigentes, mas não tem seção nem componente neste documento.
 
 
 # 11. Estrutura de Diretórios e Responsabilidades
@@ -5451,6 +5587,7 @@ Header.php
 
 Responsável por:
 
+- organização e Brand ativas, lista de Brands e troca da Brand ativa;
 - notificações;
 - idioma;
 - perfil;
@@ -5469,20 +5606,33 @@ Responsável por:
 - navegação;
 - créditos;
 - menus;
-- Brand ativa.
+- tema.
+
+---
+
+## SwitchOrganizationModal
+
+```
+SwitchOrganizationModal.php
+```
+
+Lista as organizações do usuário e troca a organização ativa (Seção 20.3).
+
+---
+
+## ReferralModal
+
+```
+ReferralModal.php
+```
+
+Modal de indicação, atrás de `config('arkion.features.referral')` (Seção 10.16).
 
 ---
 
 ## BrandSwitcher
 
-```
-BrandSwitcher.php
-```
-
-Gerencia:
-
-- Brands disponíveis;
-- troca da Brand ativa.
+> 🔁 **SUPERSEDED (Sessão 3.2):** absorvido pelo `Header` (Seção 10.15).
 
 ---
 
@@ -8236,6 +8386,8 @@ A hierarquia não altera o modelo de Brand ativa.
 
 O `BrandSwitcher` (Seção 10.15) apresenta as sub-brands aninhadas sob a respectiva umbrella brand, mas cada entrada da lista continua sendo uma seleção única e exclusiva.
 
+> **Implementação (Sessão 3.2):** o menu da marca do Header usa lista plana, em ordem alfabética, com a legenda "Sub-brand of X" em cada sub-brand. O aninhamento visual exigiria presumir uma profundidade, que é **[A DEFINIR]** (Seção 19.2).
+
 ---
 
 # 19.6 Estado da Implementação
@@ -8249,7 +8401,7 @@ O `BrandSwitcher` (Seção 10.15) apresenta as sub-brands aninhadas sob a respec
 | Relações `parent()` / `children()` no Model `Project` | Pendente |
 | Validação "parent pertence à mesma organização" | Pendente |
 | Prevenção de ciclos | Pendente |
-| Aninhamento no `BrandSwitcher` | Pendente |
+| Aninhamento no `BrandSwitcher` | Legenda "Sub-brand of X" no menu da marca do Header (Sessão 3.2); aninhamento visual pendente |
 | Política de cascata na exclusão | **[A DEFINIR]** |
 | Profundidade máxima | **[A DEFINIR]** |
 
@@ -8315,9 +8467,13 @@ Todo usuário recebe automaticamente uma organização **"Personal"** no **prime
 
 ### Seletor de organização na UI
 
-Se o usuário pertence a **apenas uma** organização, o **seletor de organização não é exibido** na interface. O contexto existe no backend de qualquer forma; a ausência do seletor é decisão de apresentação, nunca de modelagem.
+O item **"Switch Organization"** do menu da marca, no Header, aparece **sempre** — inclusive para quem pertence a uma só organização, porque o mesmo modal é o caminho para criar outra ("+ Create new organization"). Ele abre o `SwitchOrganizationModal` (mockup `switch-organization-modal.html`), que lista as organizações do usuário com iniciais, nome, papel (`OrganizationRole::label()`), contagem de Brands e o selo "Current".
 
-A partir da segunda organização, o seletor aparece e passa a ser o controle de troca de `active_organization_id` (Seção 20.5).
+Trocar chama `OrganizationContext::set()`, que valida a participação, limpa `active_project_id` e grava a nova organização; em seguida o usuário vai para o dashboard. Um id de organização da qual o usuário não é membro — ou inexistente — é recusado com 403.
+
+O rodapé do modal leva a "Manage all organizations" (`/settings/organizations`, placeholder até existir a gestão de organizações) e a "+ Create new organization" (`/organizations/create`, placeholder até existir o formulário). A página `/organizations/select`, destino do middleware `organization` quando há várias organizações e nenhuma ativa, reutiliza a mesma lista (`SwitchOrganizationModal` com `inline`).
+
+> 🔁 **SUPERSEDED (Sessão 3.2):** esta subseção dizia que, com apenas uma organização, o seletor não era exibido, e que ele só aparecia a partir da segunda. O seletor agora é sempre exibido.
 
 ---
 
@@ -8500,8 +8656,8 @@ Pendente ou **[A DEFINIR]**:
 | Destino da carteira pessoal quando o usuário deixa todas as orgs | **[A DEFINIR]** |
 | Titular da assinatura Stripe = Organization (`Billable` em `Organization`) | Pendente — **Mês 4** (Seção 12.20) |
 | Edição de nome e slug da organização | **[A DEFINIR]**; não ampliado além do Owner |
-| Endpoints HTTP e telas de membros (convidar, remover, alterar papel, sair, transferir) e seletor de organização no header | Pendente; hoje só o Service e a Policy existem |
-| CTA por papel nos três estados de bloqueio | Pendente (Seção 12.12) |
+| Endpoints HTTP e telas de membros (convidar, remover, alterar papel, sair, transferir) | Pendente; hoje só o Service e a Policy existem. O seletor de organização no Header foi implementado na Sessão 3.2 (Seção 20.3) |
+| CTA por papel nos três estados de bloqueio | Parcial: o indicador de créditos do shell já diferencia Owner ("Subscribe") de Admin e Member ("Ask your organization owner") no estado sem plano (Seção 10.12); respostas da API e telas de bloqueio seguem pendentes (Seção 12.12) |
 
 Esta tabela cobre o que as sessões de código de setembro e outubro de 2026 tocaram; os demais itens de outras seções (por exemplo, as três carteiras de crédito) têm estado próprio nas respectivas seções.
 
@@ -11318,9 +11474,12 @@ Os seguintes componentes devem ser tratados como componentes globais reutilizáv
 - LanguageSwitcher
 - ThemeToggle
 - LogoutModal
+- SwitchOrganizationModal
 - ExecutionStatus
 
 Não duplicar implementações equivalentes em páginas diferentes.
+
+> **Implementação (Sessão 3.2):** BrandSwitcher, NotificationDropdown e LanguageSwitcher não são componentes próprios — vivem dentro do `Header`, como no `header_3.0.html`. ThemeToggle é o `theme-toggle-btn` da `Sidebar`. O `SwitchOrganizationModal` é compartilhado entre o modal do shell e `/organizations/select`.
 
 ---
 

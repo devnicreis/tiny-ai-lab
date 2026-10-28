@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Project extends Model
 {
@@ -88,5 +89,13 @@ class Project extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Até duas iniciais do nome, para o avatar textual da interface.
+     */
+    public function initials(): string
+    {
+        return mb_substr(Str::initials($this->brand_name, true), 0, 2);
     }
 }

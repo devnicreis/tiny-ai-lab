@@ -8,12 +8,13 @@ use Tests\TestCase;
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
+     * O dashboard é o shell autenticado (Sessão 3.2): sem sessão, a raiz leva
+     * ao login em vez de renderizar uma Sidebar sem organização nem usuário.
      */
-    public function test_the_application_returns_a_successful_response(): void
+    public function test_the_application_root_requires_authentication(): void
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        $response->assertRedirect(route('login'));
     }
 }

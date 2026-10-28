@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal Core - Tiny AI Lab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            newsreader: ['Newsreader', 'serif'],
+          },
+          colors: {
+            orange: {
+              500: '#d2691e',
+              600: '#e64d00',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .font-newsreader { font-family: 'Newsreader', serif; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    .editable-text-input:focus,
+    .editable-text-input:focus-within {
+      box-shadow: 4px 4px 0px 0px #d2691e !important;
+      border-color: transparent !important;
+      outline: none !important;
+    }
+    .text-field-wrapper { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .text-field-wrapper:focus-within { transform: scale(1.02) translateY(-2px); z-index: 40; }
+    .text-field-wrapper:focus-within .field-label { color: #d2691e !important; }
+    .cls-1 { fill: #f4f4f6; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-[#121214] text-gray-900 dark:text-[#f4f4f6] font-sans antialiased min-h-screen">
+  
+  <nav class="w-full border-b border-gray-200 dark:border-[#f4f4f6]/20 pt-6 sticky top-0 z-50 bg-gray-50 dark:bg-[#121214]/95 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto relative flex items-center">
+      <!-- Mobile Left Arrow -->
+      <button class="md:hidden absolute left-0 z-10 pl-4 pr-6 h-full bg-gradient-to-r from-gray-50 via-gray-50 to-transparent dark:from-[#111111] dark:via-[#111111] text-[#A8A29E] hover:text-[#d2691e] flex items-center justify-start pb-3" onclick="this.nextElementSibling.scrollBy({left: -150, behavior: 'smooth'})">
+        <svg class="w-5 h-5 bg-white dark:bg-[#1c1c1c] rounded-full shadow-sm border border-gray-200 dark:border-[#f4f4f6]/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+      </button>
+
+      <div class="flex-1 flex justify-start md:justify-center gap-8 overflow-x-auto scrollbar-hide scroll-smooth px-6 md:px-10">
+        <a href="#" class="pb-3 text-gray-500 dark:text-[#A8A29E] hover:text-gray-900 dark:hover:text-[#f4f4f6] font-semibold border-b-2 border-transparent whitespace-nowrap transition-colors">Brand Core</a>
+        <a href="#" class="pb-3 text-[#d2691e] font-semibold border-b-2 border-[#d2691e] whitespace-nowrap transition-colors">Personal Core</a>
+      </div>
+
+      <!-- Mobile Right Arrow -->
+      <button class="md:hidden absolute right-0 z-10 pr-4 pl-6 h-full bg-gradient-to-l from-gray-50 via-gray-50 to-transparent dark:from-[#111111] dark:via-[#111111] text-[#A8A29E] hover:text-[#d2691e] flex items-center justify-end pb-3" onclick="this.previousElementSibling.scrollBy({left: 150, behavior: 'smooth'})">
+        <svg class="w-5 h-5 bg-white dark:bg-[#1c1c1c] rounded-full shadow-sm border border-gray-200 dark:border-[#f4f4f6]/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+      </button>
+    </div>
+  </nav>
+
+  <main class="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-10 relative">
+    
+    <!-- Header Section -->
+    <header class="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+      <div class="flex flex-col gap-1">
+          <h1 class="font-newsreader text-3xl md:text-4xl font-bold text-gray-900 dark:text-[#f4f4f6] tracking-tight">
+            Personal Core
+          </h1>
+          <p class="text-sm text-gray-500 dark:text-[#A8A29E]">
+            Train the AI on your personal worldview, daily rituals, and signature slang.
+          </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+
+          <!-- Add Card Button + Dropdown -->
+          <div class="relative group" id="add-card-wrapper">
+              <button type="button" id="add-card-btn" class="inline-flex justify-center items-center gap-x-2 text-sm font-semibold rounded-xl border border-gray-200 dark:border-[#f4f4f6]/20 bg-white dark:bg-[#1c1c1c] text-gray-700 dark:text-[#f4f4f6] hover:bg-gray-50 dark:hover:bg-[#2a2a2a] px-4 py-2 transition-colors shadow-sm focus:outline-none" onclick="toggleAddDropdown()">
+                  + Add Card
+              </button>
+              
+              <!-- Dropdown Menu -->
+              <div id="add-card-dropdown" class="absolute right-0 mt-2 w-80 bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl shadow-lg opacity-0 invisible transition-all z-50 overflow-hidden transform scale-95 origin-top-right">
+                  <div class="flex flex-col">
+                      <!-- Fixed top option -->
+                      <button type="button" class="w-full text-left px-4 py-3 bg-gray-50 dark:bg-[#121214] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border-b border-gray-200 dark:border-[#f4f4f6]/10 transition-colors flex items-start gap-3" onclick="addCard('Custom Question', '')">
+                          <div class="mt-0.5 text-[#d2691e]">
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                          </div>
+                          <div>
+                              <span class="block text-sm font-semibold text-gray-900 dark:text-[#f4f4f6]">Custom Question</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] mt-0.5">Add your own prompt</span>
+                          </div>
+                      </button>
+                      
+                      <!-- Pre-built options -->
+                      <div class="max-h-60 overflow-y-auto scrollbar-hide py-1">
+                          <button type="button" class="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors" onclick="addCard('The Common Enemy', 'What bad advice in your niche annoys you most?')">
+                              <span class="block text-sm font-medium text-gray-900 dark:text-[#f4f4f6] truncate">The Common Enemy</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] truncate">What bad advice in your niche annoys you most?</span>
+                          </button>
+                          <button type="button" class="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors" onclick="addCard('Cultural Diet', 'What books or creators changed your perspective?')">
+                              <span class="block text-sm font-medium text-gray-900 dark:text-[#f4f4f6] truncate">Cultural Diet</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] truncate">What books or creators changed your perspective?</span>
+                          </button>
+                          <button type="button" class="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors" onclick="addCard('Origin Moment', 'What early failure taught you your biggest lesson?')">
+                              <span class="block text-sm font-medium text-gray-900 dark:text-[#f4f4f6] truncate">Origin Moment</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] truncate">What early failure taught you your biggest lesson?</span>
+                          </button>
+                          <button type="button" class="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors" onclick="addCard('Phrases I Never Say', 'What words make you instantly cringe?')">
+                              <span class="block text-sm font-medium text-gray-900 dark:text-[#f4f4f6] truncate">Phrases I Never Say</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] truncate">What words make you instantly cringe?</span>
+                          </button>
+                          <button type="button" class="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors" onclick="addCard('Behind the Scenes', 'What does your actual messy workspace look like?')">
+                              <span class="block text-sm font-medium text-gray-900 dark:text-[#f4f4f6] truncate">Behind the Scenes</span>
+                              <span class="block text-[11px] text-gray-500 dark:text-[#A8A29E] truncate">What does your actual messy workspace look like?</span>
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          
+          <!-- Save Changes -->
+          <button type="button" onclick="showToast()" class="py-2 px-4 inline-flex justify-center items-center gap-2 rounded-xl border border-transparent font-semibold bg-[#d2691e] text-white hover:bg-[#b05615] focus:outline-none transition-colors shadow-sm text-sm">
+              Save Changes
+          </button>
+      </div>
+    </header>
+
+    <!-- Cards Grid -->
+    <div id="cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        <!-- Card 1 -->
+        <div class="bg-white dark:bg-[#1c1c1c] p-6 rounded-2xl border border-gray-200 dark:border-[#f4f4f6]/20 shadow-sm flex flex-col relative group hover:border-[#d2691e]/30 transition-colors">
+            <div class="text-field-wrapper flex-1 flex flex-col relative">
+                <div class="flex justify-between items-start mb-3 gap-3">
+                    <label class="field-label block text-sm font-bold text-gray-900 dark:text-[#f4f4f6] transition-colors leading-snug flex-1">
+                        What industry practice do you openly disagree with?
+                    </label>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                        <!-- INLINE DELETE -->
+                    <div class="relative flex items-center inline-delete-container" onmouseleave="resetDelete(this)">
+                        <button type="button" onclick="showInlineConfirm(this, event)" class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-md hover:bg-white dark:hover:bg-[#1c1c1c] shadow-sm delete-trigger bg-transparent border border-transparent" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="hidden inline-confirm items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-md px-1 py-0.5 z-50 whitespace-nowrap shadow-md border border-red-200 dark:border-red-500/30">
+                            <button type="button" onclick="executeDelete(this, event)" class="p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            </button>
+                            <button type="button" onclick="cancelDelete(this, event)" class="p-0.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#121214] rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                
+                <div class="relative flex-1 flex flex-col">
+                    <textarea rows="4" class="editable-text-input py-3 px-4 block w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl text-sm text-gray-900 dark:text-[#f4f4f6] transition-all duration-300 resize-none pb-8 flex-1" placeholder="Write your answer or personal take here (keep it punchy)..." maxlength="300" oninput="updateCounter(this)">Most creators don't have a reach problem; they have an offer problem. Stop chasing viral views if your backend funnel is leaking.</textarea>
+                    
+                    <div class="absolute bottom-2 right-3 flex items-center">
+                        <span class="text-[10px] text-gray-400 font-medium char-counter">142/300</span>
+                    </div>
+                    
+                    
+                </div>
+            </div>
+        </div>
+        
+        <!-- Card 2 -->
+        <div class="bg-white dark:bg-[#1c1c1c] p-6 rounded-2xl border border-gray-200 dark:border-[#f4f4f6]/20 shadow-sm flex flex-col relative group hover:border-[#d2691e]/30 transition-colors">
+            <div class="text-field-wrapper flex-1 flex flex-col relative">
+                <div class="flex justify-between items-start mb-3 gap-3">
+                    <label class="field-label block text-sm font-bold text-gray-900 dark:text-[#f4f4f6] transition-colors leading-snug flex-1">
+                        What non-negotiable habit anchors your day?
+                    </label>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                        <!-- INLINE DELETE -->
+                    <div class="relative flex items-center inline-delete-container" onmouseleave="resetDelete(this)">
+                        <button type="button" onclick="showInlineConfirm(this, event)" class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-md hover:bg-white dark:hover:bg-[#1c1c1c] shadow-sm delete-trigger bg-transparent border border-transparent" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="hidden inline-confirm items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-md px-1 py-0.5 z-50 whitespace-nowrap shadow-md border border-red-200 dark:border-red-500/30">
+                            <button type="button" onclick="executeDelete(this, event)" class="p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            </button>
+                            <button type="button" onclick="cancelDelete(this, event)" class="p-0.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#121214] rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                
+                <div class="relative flex-1 flex flex-col">
+                    <textarea rows="4" class="editable-text-input py-3 px-4 block w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl text-sm text-gray-900 dark:text-[#f4f4f6] transition-all duration-300 resize-none pb-8 flex-1" placeholder="Write your answer or personal take here (keep it punchy)..." maxlength="300" oninput="updateCounter(this)">Double espresso at 6 AM, 30 minutes in a physical notebook before opening Slack, and zero meetings before noon.</textarea>
+                    
+                    <div class="absolute bottom-2 right-3 flex items-center">
+                        <span class="text-[10px] text-gray-400 font-medium char-counter">117/300</span>
+                    </div>
+                    
+                    
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="bg-white dark:bg-[#1c1c1c] p-6 rounded-2xl border border-gray-200 dark:border-[#f4f4f6]/20 shadow-sm flex flex-col relative group hover:border-[#d2691e]/30 transition-colors">
+            <div class="text-field-wrapper flex-1 flex flex-col relative">
+                <div class="flex justify-between items-start mb-3 gap-3">
+                    <label class="field-label block text-sm font-bold text-gray-900 dark:text-[#f4f4f6] transition-colors leading-snug flex-1">
+                        What slang or signature phrases do you always use?
+                    </label>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                        <!-- INLINE DELETE -->
+                    <div class="relative flex items-center inline-delete-container" onmouseleave="resetDelete(this)">
+                        <button type="button" onclick="showInlineConfirm(this, event)" class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-md hover:bg-white dark:hover:bg-[#1c1c1c] shadow-sm delete-trigger bg-transparent border border-transparent" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="hidden inline-confirm items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-md px-1 py-0.5 z-50 whitespace-nowrap shadow-md border border-red-200 dark:border-red-500/30">
+                            <button type="button" onclick="executeDelete(this, event)" class="p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            </button>
+                            <button type="button" onclick="cancelDelete(this, event)" class="p-0.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#121214] rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                
+                <div class="relative flex-1 flex flex-col">
+                    <textarea rows="4" class="editable-text-input py-3 px-4 block w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl text-sm text-gray-900 dark:text-[#f4f4f6] transition-all duration-300 resize-none pb-8 flex-1" placeholder="Write your answer or personal take here (keep it punchy)..." maxlength="300" oninput="updateCounter(this)">Regularly use 'zero friction', 'table stakes', 'here's the kicker', and 'no fluff'. Never use corporate buzzwords like 'synergy'.</textarea>
+                    
+                    <div class="absolute bottom-2 right-3 flex items-center">
+                        <span class="text-[10px] text-gray-400 font-medium char-counter">132/300</span>
+                    </div>
+                    
+                    
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 4 -->
+        <div class="bg-white dark:bg-[#1c1c1c] p-6 rounded-2xl border border-gray-200 dark:border-[#f4f4f6]/20 shadow-sm flex flex-col relative group hover:border-[#d2691e]/30 transition-colors">
+            <div class="text-field-wrapper flex-1 flex flex-col relative">
+                <div class="flex justify-between items-start mb-3 gap-3">
+                    <label class="field-label block text-sm font-bold text-gray-900 dark:text-[#f4f4f6] transition-colors leading-snug flex-1">
+                        Which movies, books, or analogies shape your stories?
+                    </label>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                        <!-- INLINE DELETE -->
+                    <div class="relative flex items-center inline-delete-container" onmouseleave="resetDelete(this)">
+                        <button type="button" onclick="showInlineConfirm(this, event)" class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-md hover:bg-white dark:hover:bg-[#1c1c1c] shadow-sm delete-trigger bg-transparent border border-transparent" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="hidden inline-confirm items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-md px-1 py-0.5 z-50 whitespace-nowrap shadow-md border border-red-200 dark:border-red-500/30">
+                            <button type="button" onclick="executeDelete(this, event)" class="p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            </button>
+                            <button type="button" onclick="cancelDelete(this, event)" class="p-0.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#121214] rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                
+                <div class="relative flex-1 flex flex-col">
+                    <textarea rows="4" class="editable-text-input py-3 px-4 block w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl text-sm text-gray-900 dark:text-[#f4f4f6] transition-all duration-300 resize-none pb-8 flex-1" placeholder="Write your answer or personal take here (keep it punchy)..." maxlength="300" oninput="updateCounter(this)">Love using analogies from sci-fi films like Interstellar and classic gaming to explain complex systems and product launches.</textarea>
+                    
+                    <div class="absolute bottom-2 right-3 flex items-center">
+                        <span class="text-[10px] text-gray-400 font-medium char-counter">130/300</span>
+                    </div>
+                    
+                    
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+  </main>
+  
+  <script>
+    let cardCount = 4;
+    const MAX_CARDS = 8;
+    
+    function toggleAddDropdown() {
+        const dropdown = document.getElementById('add-card-dropdown');
+        if (dropdown.classList.contains('opacity-0')) {
+            dropdown.classList.remove('opacity-0', 'invisible', 'scale-95');
+            dropdown.classList.add('opacity-100', 'visible', 'scale-100');
+        } else {
+            dropdown.classList.add('opacity-0', 'invisible', 'scale-95');
+            dropdown.classList.remove('opacity-100', 'visible', 'scale-100');
+        }
+    }
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('add-card-wrapper');
+        const dropdown = document.getElementById('add-card-dropdown');
+        if (wrapper && !wrapper.contains(e.target)) {
+            dropdown.classList.add('opacity-0', 'invisible', 'scale-95');
+            dropdown.classList.remove('opacity-100', 'visible', 'scale-100');
+        }
+    });
+    
+    function addCard(category, question) {
+        if (cardCount >= MAX_CARDS) return;
+        
+        toggleAddDropdown();
+        
+        const grid = document.getElementById('cards-grid');
+        const template = `
+            <div class="bg-white dark:bg-[#1c1c1c] p-6 rounded-2xl border border-gray-200 dark:border-[#f4f4f6]/20 shadow-sm flex flex-col relative group hover:border-[#d2691e]/30 transition-colors animate-[fadeIn_0.3s_ease-out]">
+                <div class="text-field-wrapper flex-1 flex flex-col relative">
+                <div class="flex justify-between items-start mb-3 gap-3">
+                    <label class="field-label block text-sm font-bold text-gray-900 dark:text-[#f4f4f6] transition-colors leading-snug flex-1">
+                            ${question ? question : '<input type="text" class="w-full bg-transparent border-b border-[#d2691e] outline-none placeholder-gray-400 focus:border-b-2 font-normal text-sm" placeholder="Type your custom question here..." autofocus>'}
+                        </label>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                        <!-- INLINE DELETE -->
+                    <div class="relative flex items-center inline-delete-container" onmouseleave="resetDelete(this)">
+                        <button type="button" onclick="showInlineConfirm(this, event)" class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-md hover:bg-white dark:hover:bg-[#1c1c1c] shadow-sm delete-trigger bg-transparent border border-transparent" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="hidden inline-confirm items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-md px-1 py-0.5 z-50 whitespace-nowrap shadow-md border border-red-200 dark:border-red-500/30">
+                            <button type="button" onclick="executeDelete(this, event)" class="p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                            </button>
+                            <button type="button" onclick="cancelDelete(this, event)" class="p-0.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#121214] rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                    
+                    <div class="relative flex-1 flex flex-col">
+                        <textarea rows="4" class="editable-text-input py-3 px-4 block w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-[#f4f4f6]/20 rounded-xl text-sm text-gray-900 dark:text-[#f4f4f6] transition-all duration-300 resize-none pb-8 flex-1" placeholder="Write your answer or personal take here (keep it punchy)..." maxlength="300" oninput="updateCounter(this)"></textarea>
+                        
+                        <div class="absolute bottom-2 right-3 flex items-center">
+                            <span class="text-[10px] text-gray-400 font-medium char-counter">0/300</span>
+                        </div>
+                        
+                        
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        grid.insertAdjacentHTML('beforeend', template);
+        cardCount++;
+        checkCardLimit();
+    }
+    
+    function checkCardLimit() {
+        const btn = document.getElementById('add-card-btn');
+        if (cardCount >= MAX_CARDS) {
+            btn.classList.add('opacity-50', 'pointer-events-none');
+            btn.title = "Limit of 8 cards reached. Edit or remove a card to add new context.";
+        } else {
+            btn.classList.remove('opacity-50', 'pointer-events-none');
+            btn.title = "";
+        }
+    }
+    
+    function updateCounter(textarea) {
+        const counter = textarea.nextElementSibling.querySelector('.char-counter');
+        counter.textContent = `${textarea.value.length}/300`;
+    }
+    
+  </script>
+
+  <!-- Toast -->
+  <div id="arkion-toast" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col overflow-hidden bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-[-100%] opacity-0 pointer-events-none">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+      <span class="text-sm font-medium">Changes saved successfully!</span>
+    </div>
+    <!-- Progress Bar -->
+    <div class="w-full h-1 bg-gray-800 dark:bg-gray-200">
+      <div id="toast-progress" class="h-full bg-[#d2691e]" style="width: 100%;"></div>
+    </div>
+  </div>
+
+  <script>
+    let toastTimeout;
+    function showToast() {
+      const toast = document.getElementById('arkion-toast');
+      const progress = document.getElementById('toast-progress');
+      
+      progress.style.transition = 'none';
+      progress.style.width = '100%';
+      void toast.offsetWidth;
+      
+      toast.classList.remove('translate-y-[-100%]', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      
+      progress.style.transition = 'width 3s linear';
+      progress.style.width = '0%';
+      
+      if(toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-[-100%]', 'opacity-0');
+      }, 3000);
+    }
+    
+    // Inline Delete Logic
+    function showInlineConfirm(btn, e) {
+      if (e) e.stopPropagation();
+      const container = btn.closest('.inline-delete-container');
+      btn.classList.add('hidden');
+      container.querySelector('.inline-confirm').classList.remove('hidden');
+      container.querySelector('.inline-confirm').classList.add('flex');
+    }
+
+    function cancelDelete(btn, e) {
+      if (e) e.stopPropagation();
+      const container = btn.closest('.inline-delete-container');
+      container.querySelector('.inline-confirm').classList.add('hidden');
+      container.querySelector('.inline-confirm').classList.remove('flex');
+      container.querySelector('.delete-trigger').classList.remove('hidden');
+    }
+
+    function resetDelete(container) {
+      const confirmBox = container.querySelector('.inline-confirm');
+      if(confirmBox && !confirmBox.classList.contains('hidden')) {
+        cancelDelete(confirmBox.querySelector('button'), null);
+      }
+    }
+
+    function executeDelete(btn, e) {
+      if (e) e.stopPropagation();
+      // Remove the card
+      const card = btn.closest('.group');
+      if(card) {
+          card.remove();
+          cardCount--;
+          checkCardLimit();
+      }
+    }
+  </script>
+</body>
+</html>

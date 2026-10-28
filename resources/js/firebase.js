@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onIdTokenChanged, signInWithPopup } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, onIdTokenChanged, signInWithPopup, signOut } from 'firebase/auth';
 
 /**
  * Cliente Firebase do navegador.
@@ -91,3 +91,28 @@ export async function signInWithGoogle() {
 // Exposto em `window`: a tela de login (resources/views/auth/login.blade.php)
 // dispara o fluxo a partir de um handler Alpine inline, sem módulo próprio.
 window.signInWithGoogle = signInWithGoogle;
+
+/**
+ * Encerra a sessão do Firebase no navegador antes do `POST /logout`.
+ *
+ * O logout do Laravel encerra só a sessão do servidor; sem isto o SDK
+ * continuaria autenticado no navegador. Falhar aqui nunca impede o logout do
+ * servidor, que é o que de fato revoga o acesso às rotas web.
+ */
+export async function signOutOfFirebase() {
+    if (!firebaseAuth) {
+        return;
+    }
+
+    try {
+        await signOut(firebaseAuth);
+    } catch {
+        // O logout do servidor segue de qualquer forma.
+    }
+
+    window.__FIREBASE_TOKEN__ = '';
+}
+
+// Exposto em `window` pelo mesmo motivo de `signInWithGoogle`: o formulário do
+// LogoutModal o chama a partir de um handler Alpine inline.
+window.signOutOfFirebase = signOutOfFirebase;
